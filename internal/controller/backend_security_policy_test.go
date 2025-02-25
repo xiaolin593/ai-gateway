@@ -233,7 +233,7 @@ func TestBackendSecurityController_RotateCredentials(t *testing.T) {
 	require.NoError(t, cl.Update(t.Context(), awsSecret1))
 
 	// rotate credential
-	_, err = c.rotateCredential(ctx, bsp, oidc, rotator)
+	_, err = c.rotateCredential(ctx, bsp, rotator)
 	require.NoError(t, err)
 	awsSecret2, err := rotators.LookupSecret(t.Context(), cl, bspNamespace, awsSecretName)
 	require.NoError(t, err)
