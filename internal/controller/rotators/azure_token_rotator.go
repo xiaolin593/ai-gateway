@@ -109,8 +109,8 @@ func (r *AzureTokenRotator) Rotate(ctx context.Context, _ string) error {
 			// store Azure access token into k8s secret
 			secret = &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      GetBSPSecretName(r.backendSecurityPolicyName),
-					Namespace: r.backendSecurityPolicyNamespace,
+					Name:      secretName,
+					Namespace: policyNamespace,
 				},
 				Type: corev1.SecretTypeOpaque,
 				Data: make(map[string][]byte),
