@@ -104,6 +104,8 @@ func (c *BackendSecurityPolicyController) Reconcile(ctx context.Context, req ctr
 		}
 
 	default:
+		// APIKey case will hit here
+		// TODO XL to fix unit test failure
 		err = fmt.Errorf("unsupported backend security type %s for creating rotator", bsp.Spec.Type)
 		c.logger.Error(err, "namespace", bsp.Namespace, "name", bsp.Name)
 		return ctrl.Result{}, err
