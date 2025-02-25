@@ -408,7 +408,6 @@ type BackendSecurityPolicySpec struct {
 	// Type specifies the auth mechanism used to access the provider. Currently, only "APIKey", "AWSCredentials", and "AzureCredentials" are supported.
 	//
 	// +kubebuilder:validation:Enum=APIKey;AWSCredentials;AzureCredentials
-	// TODO update above marker with enum for AzureCredentials
 	Type BackendSecurityPolicyType `json:"type"`
 
 	// APIKey is a mechanism to access a backend(s). The API key will be injected into the Authorization header.
