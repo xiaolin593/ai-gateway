@@ -172,12 +172,19 @@ type BackendAuth struct {
 	APIKey *APIKeyAuth `json:"apiKey,omitempty"`
 	// AWSAuth specifies the location of the AWS credential file and region.
 	AWSAuth *AWSAuth `json:"aws,omitempty"`
+	// Azure Auth specifies the location of Azure access token file, potentially other Azure specific fields e.g. deployment id, api_version
+	AzureAuth *AzureAuth `json:"azure,omitempty"`
 }
 
 // AWSAuth defines the credentials needed to access AWS.
 type AWSAuth struct {
 	CredentialFileName string `json:"credentialFileName,omitempty"`
 	Region             string `json:"region"`
+}
+
+// AzureAuth defines the file containing azure access token that will be mounted to the external proc
+type AzureAuth struct {
+	Filename string `json:"filename"`
 }
 
 // APIKeyAuth defines the file that will be mounted to the external proc.

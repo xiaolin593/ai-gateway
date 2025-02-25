@@ -104,16 +104,16 @@ func StartControllers(ctx context.Context, config *rest.Config, logger logr.Logg
 		return fmt.Errorf("failed to create controller for AIServiceBackend: %w", err)
 	}
 
-	backendSecurityPolicyC := NewBackendSecurityPolicyController(c, kubernetes.NewForConfigOrDie(config), logger.
+	bspController := NewBackendSecurityPolicyController(c, kubernetes.NewForConfigOrDie(config), logger.
 		WithName("backend-security-policy"), backendC.syncAIServiceBackend)
 	if err = ctrl.NewControllerManagedBy(mgr).
 		For(&aigv1a1.BackendSecurityPolicy{}).
-		Complete(backendSecurityPolicyC); err != nil {
+		Complete(bspController); err != nil {
 		return fmt.Errorf("failed to create controller for BackendSecurityPolicy: %w", err)
 	}
 
 	secretC := NewSecretController(c, kubernetes.NewForConfigOrDie(config), logger.
-		WithName("secret"), backendSecurityPolicyC.syncBackendSecurityPolicy)
+		WithName("secret"), bspController.syncBackendSecurityPolicy)
 	if err = ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Secret{}).
 		Complete(secretC); err != nil {

@@ -128,6 +128,36 @@ func TestBackendSecurityPolicyController_ReconcileOIDC(t *testing.T) {
 }
 
 func TestBackendSecurityController_RotateCredentials(t *testing.T) {
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	c := NewBackendSecurityPolicyController(cl, fake2.NewClientset(), ctrl.Log, internaltesting.NewSyncFnImpl[aigv1a1.AIServiceBackend]().Sync)
+	backendSecurityPolicyName := "mybackendSecurityPolicy"
+	namespace := "default"
+
+	secret := corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "clientSecret",
+			Namespace: namespace,
+		},
+		Data: map[string][]byte{
+			"client-secret": []byte("client-secret"),
+		},
+	}
+	require.NoError(t, cl.Create(t.Context(), &secret, &client.CreateOptions{}))
+
+	secret = corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      rotators.GetBSPSecretName(fmt.Sprintf("%s-OIDC", backendSecurityPolicyName)),
+			Namespace: namespace,
+			Annotations: map[string]string{
+				rotators.ExpirationTimeAnnotationKey: "2024-01-01T01:01:00.000-00:00",
+			},
+		},
+		Data: map[string][]byte{
+			"credentials": []byte("credentials"),
+		},
+	}
+	require.NoError(t, cl.Create(t.Context(), &secret, &client.CreateOptions{}))
+
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Add("Content-Type", "application/json")
 		b, err := json.Marshal(oauth2.Token{AccessToken: "some-access-token", TokenType: "Bearer", ExpiresIn: 60})
@@ -198,12 +228,7 @@ func TestBackendSecurityController_RotateCredentials(t *testing.T) {
 	rotator, err := rotators.NewAWSOIDCRotator(ctx, cl, &mockSTSClient{}, fake2.NewClientset(), ctrl.Log, bspNamespace, bsp.Name, preRotationWindow, "placeholder", "us-east-1")
 	require.NoError(t, err)
 
-	// ensure aws credentials secret do not exist
-	_, err = rotators.LookupSecret(t.Context(), cl, bspNamespace, awsSecretName)
-	require.Error(t, err)
-
-	// first credential rotation should create aws credentials secret
-	res, err := c.rotateCredential(ctx, bsp, oidc, rotator)
+	res, err := c.rotateCredential(ctx, bsp, rotator)
 	require.NoError(t, err)
 	require.WithinRange(t, time.Now().Add(res), time.Now().Add(50*time.Minute), time.Now().Add(time.Hour))
 

@@ -68,6 +68,7 @@ func NewAWSOIDCRotator(
 
 	cfg.Region = region
 
+	// TODO XL - https://bbgithub.dev.bloomberg.com/cncs-ai-gateway/helm-ai-gateway-resources/blob/main/values.yaml#L18
 	if proxyURL := os.Getenv("AI_GATEWAY_STS_PROXY_URL"); proxyURL != "" {
 		cfg.HTTPClient = &http.Client{
 			Transport: &http.Transport{
@@ -135,31 +136,52 @@ func populateSecretWithAwsIdentity(secret *corev1.Secret, awsIdentity *sts.Assum
 //
 // This implements [Rotator.Rotate].
 func (r *AWSOIDCRotator) Rotate(ctx context.Context, token string) error {
-	bspNamespace := r.backendSecurityPolicyNamespace
+	namespace := r.backendSecurityPolicyNamespace
 	bspName := r.backendSecurityPolicyName
-	secretName := GetBSPSecretName(bspName)
+	r.logger.Info("rotating aws sts credentials", "namespace", namespace, "name", bspName)
 
 	r.logger.Info("rotating aws credentials secret", "namespace", bspNamespace, "name", bspName)
 	awsIdentity, err := r.assumeRoleWithToken(ctx, token)
 	if err != nil {
-		r.logger.Error(err, "failed to assume role", "role", r.roleArn, "access token", token)
+		r.logger.Error(err, "failed to assume role", "role", r.roleArn, "oidc access token", token)
 		return err
 	}
 
-	secret, err := LookupSecret(ctx, r.client, bspNamespace, secretName)
+	secret, err := LookupSecret(ctx, r.client, namespace, GetBSPSecretName(bspName))
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			r.logger.Info("creating a new aws credentials secret", "namespace", bspNamespace, "name", bspName)
-			secret = &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      secretName,
-					Namespace: bspNamespace,
-				},
-				Type: corev1.SecretTypeOpaque,
-				Data: make(map[string][]byte),
-			}
-			populateSecretWithAwsIdentity(secret, awsIdentity, r.region)
-			return r.client.Create(ctx, secret)
+		// If error is not `NotFound` error, return
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		// Otherwise, it's NotFound, create secret
+		secret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      GetBSPSecretName(bspName),
+				Namespace: namespace,
+			},
+			Type: corev1.SecretTypeOpaque,
+			Data: make(map[string][]byte),
+		}
+	}
+
+	updateExpirationSecretAnnotation(secret, *result.Credentials.Expiration)
+
+	// For now have profile as default.
+	// TODO XL - remove when PR, construct awsCredentials object
+	const defaultProfile = "default"
+	credsFile := awsCredentialsFile{awsCredentials{
+		profile:         defaultProfile,
+		accessKeyID:     aws.ToString(result.Credentials.AccessKeyId),
+		secretAccessKey: aws.ToString(result.Credentials.SecretAccessKey),
+		sessionToken:    aws.ToString(result.Credentials.SessionToken),
+		region:          r.region,
+	}}
+
+	updateAWSCredentialsInSecret(secret, &credsFile)
+
+	if err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			return r.client.Update(ctx, secret)
 		}
 		r.logger.Error(err, "failed to lookup aws credentials secret", "namespace", bspNamespace, "name", bspName)
 		return err

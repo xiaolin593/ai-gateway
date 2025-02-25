@@ -28,6 +28,8 @@ func NewHandler(ctx context.Context, config *filterapi.BackendAuth) (Handler, er
 		return newAWSHandler(ctx, config.AWSAuth)
 	} else if config.APIKey != nil {
 		return newAPIKeyHandler(config.APIKey)
+	} else if config.AzureAuth != nil {
+		return newAzureHandler(config.AzureAuth)
 	}
 	return nil, errors.New("no backend auth handler found")
 }

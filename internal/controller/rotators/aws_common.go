@@ -95,6 +95,7 @@ type awsCredentials struct {
 }
 
 // awsCredentialsFile represents a complete AWS credentials file containing a credential profile.
+// TODO awsCredentialFile name may be a bit misleading, it's conceptually a file
 type awsCredentialsFile struct {
 	// creds stores the aws credentials.
 	creds awsCredentials
