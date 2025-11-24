@@ -228,7 +228,7 @@ func TestOpenAIToGCPVertexAITranslatorV1ChatCompletion_RequestBody(t *testing.T)
                 {
                     "name": "test_function",
                     "description": "A test function",
-                    "parameters": {
+                    "parametersJsonSchema": {
                         "type": "object",
                         "properties": {
                             "param1": {
@@ -611,7 +611,7 @@ func TestOpenAIToGCPVertexAITranslatorV1ChatCompletion_RequestBody(t *testing.T)
 		{
 			name: "Request with media resolution fields",
 			input: openai.ChatCompletionRequest{
-				Model:       "gemini-1.5-pro",
+				Model:       "gemini-3-pro",
 				Temperature: ptr.To(0.7),
 				MaxTokens:   ptr.To(int64(1024)),
 				Messages: []openai.ChatCompletionMessageParamUnion{
@@ -648,8 +648,8 @@ func TestOpenAIToGCPVertexAITranslatorV1ChatCompletion_RequestBody(t *testing.T)
 			onRetry:   false,
 			wantError: false,
 			wantHeaderMut: []internalapi.Header{
-				{":path", "publishers/google/models/gemini-1.5-pro:generateContent"},
-				{"content-length", "333"},
+				{":path", "publishers/google/models/gemini-3-pro:generateContent"},
+				{"content-length", "343"},
 			},
 			wantBody: wantBdyWithMediaResolutionFields,
 		},

@@ -46,7 +46,7 @@ const (
 // -------------------------------------------------------------.
 
 // openAIMessagesToGeminiContents converts OpenAI messages to Gemini Contents and SystemInstruction.
-func openAIMessagesToGeminiContents(messages []openai.ChatCompletionMessageParamUnion) ([]genai.Content, *genai.Content, error) {
+func openAIMessagesToGeminiContents(messages []openai.ChatCompletionMessageParamUnion, requestModel internalapi.RequestModel) ([]genai.Content, *genai.Content, error) {
 	var gcpContents []genai.Content
 	var systemInstruction *genai.Content
 	knownToolCalls := make(map[string]string)
@@ -81,7 +81,7 @@ func openAIMessagesToGeminiContents(messages []openai.ChatCompletionMessageParam
 			}
 		case msgUnion.OfUser != nil:
 			msg := msgUnion.OfUser
-			parts, err := userMsgToGeminiParts(*msg)
+			parts, err := userMsgToGeminiParts(*msg, requestModel)
 			if err != nil {
 				return nil, nil, fmt.Errorf("error converting user message: %w", err)
 			}
@@ -162,7 +162,7 @@ func developerMsgToGeminiParts(msg openai.ChatCompletionDeveloperMessageParam) (
 }
 
 // userMsgToGeminiParts converts OpenAI user message to Gemini Parts.
-func userMsgToGeminiParts(msg openai.ChatCompletionUserMessageParam) ([]*genai.Part, error) {
+func userMsgToGeminiParts(msg openai.ChatCompletionUserMessageParam, requestModel internalapi.RequestModel) ([]*genai.Part, error) {
 	var parts []*genai.Part
 	switch contentValue := msg.Content.Value.(type) {
 	case string:
@@ -203,7 +203,7 @@ func userMsgToGeminiParts(msg openai.ChatCompletionUserMessageParam) ([]*genai.P
 				}
 
 				// Handle media resolution for both data URI and regular URL cases
-				if content.OfImageURL.ImageURL.Detail != "" {
+				if content.OfImageURL.ImageURL.Detail != "" && mediaResolutionAvailable(requestModel) {
 					mediaResolution, err := mapDetailMediaResolution(content.OfImageURL.ImageURL.Detail)
 					if err != nil {
 						return nil, fmt.Errorf("invalid Detail: %w", err)
@@ -447,9 +447,31 @@ func openAIToolChoiceToGeminiToolConfig(toolChoice *openai.ChatCompletionToolCho
 	}
 }
 
-// it only works with gemini2.5 according to https://ai.google.dev/gemini-api/docs/structured-output#json-schema, separate it as a small function to make it easier to maintain
+// ------------------------------------------------------------
+// Gemini Version-Specific Feature Availability Functions
+// ------------------------------------------------------------
+//
+// These functions implement version-specific feature gating for Gemini models
+// to prevent potential breaking existing codes when using newer features with older model versions.
+//
+// Check and Update these functions when new Gemini model versions are released
+// and their feature support changes.
+
+// it only works with models after gemini2.5 according to https://ai.google.dev/gemini-api/docs/structured-output#json-schema, separate it as a small function to make it easier to maintain
 func responseJSONSchemaAvailable(requestModel internalapi.RequestModel) bool {
-	return strings.Contains(requestModel, "gemini") && strings.Contains(requestModel, "2.5")
+	return strings.Contains(requestModel, "gemini") && (strings.Contains(requestModel, "2.5") || strings.Contains(requestModel, "3"))
+}
+
+// mediaResolutionAvailable checks if the model supports media resolution settings.
+// Only Gemini 3.0+ models support this feature for controlling image/video quality.
+func mediaResolutionAvailable(requestModel internalapi.RequestModel) bool {
+	return strings.Contains(requestModel, "gemini") && strings.Contains(requestModel, "3")
+}
+
+// reasoningEffortAvailable checks if the model supports reasoning effort.
+// Only Gemini 3.0+ models support this feature for controlling reasoning depth.
+func reasoningEffortAvailable(requestModel internalapi.RequestModel) bool {
+	return strings.Contains(requestModel, "gemini") && strings.Contains(requestModel, "3")
 }
 
 // mapReasoningEffortToThinkingLevel converts OpenAI reasoning effort levels to Gemini thinking levels.
@@ -557,7 +579,7 @@ func openAIReqToGeminiGenerationConfig(openAIReq *openai.ChatCompletionRequest, 
 		gc.ResponseMIMEType = mimeTypeApplicationJSON
 		gc.ResponseJsonSchema = openAIReq.GuidedJSON
 	}
-	if openAIReq.ReasoningEffort != "" {
+	if openAIReq.ReasoningEffort != "" && reasoningEffortAvailable(requestModel) {
 		thinkLevel, err := mapReasoningEffortToThinkingLevel(openAIReq.ReasoningEffort)
 		if err != nil {
 			return nil, responseMode, fmt.Errorf("reasoning effort: %w", err)

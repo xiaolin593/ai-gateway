@@ -389,7 +389,7 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) convertGCPChunkToOpenAI(
 // openAIMessageToGeminiMessage converts an OpenAI ChatCompletionRequest to a GCP Gemini GenerateContentRequest.
 func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) openAIMessageToGeminiMessage(openAIReq *openai.ChatCompletionRequest, requestModel internalapi.RequestModel) (*gcp.GenerateContentRequest, error) {
 	// Convert OpenAI messages to Gemini Contents and SystemInstruction.
-	contents, systemInstruction, err := openAIMessagesToGeminiContents(openAIReq.Messages)
+	contents, systemInstruction, err := openAIMessagesToGeminiContents(openAIReq.Messages, requestModel)
 	if err != nil {
 		return nil, err
 	}
@@ -425,7 +425,7 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) openAIMessageToGeminiMes
 
 	// Apply vendor-specific fields after standard OpenAI-to-Gemini translation.
 	// Vendor fields take precedence over translated fields when conflicts occur.
-	o.applyVendorSpecificFields(openAIReq, &gcr)
+	o.applyVendorSpecificFields(openAIReq, &gcr, requestModel)
 
 	return &gcr, nil
 }
@@ -433,7 +433,7 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) openAIMessageToGeminiMes
 // applyVendorSpecificFields applies GCP Vertex AI vendor-specific fields to the Gemini request.
 // These fields allow users to access advanced GCP-specific features not available in the OpenAI API.
 // Vendor fields override any conflicting fields that were set during the standard translation process.
-func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) applyVendorSpecificFields(openAIReq *openai.ChatCompletionRequest, gcr *gcp.GenerateContentRequest) {
+func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) applyVendorSpecificFields(openAIReq *openai.ChatCompletionRequest, gcr *gcp.GenerateContentRequest, requestModel internalapi.RequestModel) {
 	// Early return if no vendor fields are specified.
 	if openAIReq.GCPVertexAIVendorFields == nil {
 		return
@@ -448,7 +448,7 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) applyVendorSpecificField
 		if vendorGenConfig.ThinkingConfig != nil {
 			gcr.GenerationConfig.ThinkingConfig = vendorGenConfig.ThinkingConfig
 		}
-		if vendorGenConfig.MediaResolution != "" {
+		if vendorGenConfig.MediaResolution != "" && mediaResolutionAvailable(requestModel) {
 			gcr.GenerationConfig.MediaResolution = vendorGenConfig.MediaResolution
 		}
 	}

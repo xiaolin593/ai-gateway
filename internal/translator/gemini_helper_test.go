@@ -121,7 +121,7 @@ func TestOpenAIMessagesToGeminiContents(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			contents, systemInstruction, err := openAIMessagesToGeminiContents(tc.messages)
+			contents, systemInstruction, err := openAIMessagesToGeminiContents(tc.messages, "gemini-3-pro")
 
 			if tc.expectedErrorMsg != "" || err != nil {
 				require.Error(t, err)
@@ -847,7 +847,7 @@ func TestUserMsgToGeminiParts(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			parts, err := userMsgToGeminiParts(tc.msg)
+			parts, err := userMsgToGeminiParts(tc.msg, "gemini-3-pro")
 
 			if tc.expectedErrMsg != "" || err != nil {
 				require.Error(t, err)
@@ -1060,7 +1060,7 @@ func TestOpenAIReqToGeminiGenerationConfig(t *testing.T) {
 				},
 			},
 			expectedResponseMode: responseModeNone,
-			requestModel:         "gemini-2.5-flash",
+			requestModel:         "gemini-3-pro",
 		},
 		{
 			name: "reasoning effort medium",
@@ -1073,7 +1073,7 @@ func TestOpenAIReqToGeminiGenerationConfig(t *testing.T) {
 				},
 			},
 			expectedResponseMode: responseModeNone,
-			requestModel:         "gemini-2.5-flash",
+			requestModel:         "gemini-3-pro",
 		},
 		{
 			name: "reasoning effort unsupported",
@@ -1081,7 +1081,7 @@ func TestOpenAIReqToGeminiGenerationConfig(t *testing.T) {
 				ReasoningEffort: openaigo.ReasoningEffortHigh,
 			},
 			expectedErrMsg: "reasoning effort:",
-			requestModel:   "gemini-2.5-flash",
+			requestModel:   "gemini-3-pro",
 		},
 	}
 
