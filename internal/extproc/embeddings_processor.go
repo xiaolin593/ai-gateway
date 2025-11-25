@@ -172,9 +172,9 @@ type embeddingsProcessorUpstreamFilter struct {
 func (e *embeddingsProcessorUpstreamFilter) selectTranslator(out filterapi.VersionedAPISchema) error {
 	switch out.Name {
 	case filterapi.APISchemaOpenAI:
-		e.translator = translator.NewEmbeddingOpenAIToOpenAITranslator(out.Version, e.modelNameOverride, e.span)
+		e.translator = translator.NewEmbeddingOpenAIToOpenAITranslator(out.Version, e.modelNameOverride)
 	case filterapi.APISchemaAzureOpenAI:
-		e.translator = translator.NewEmbeddingOpenAIToAzureOpenAITranslator(out.Version, e.modelNameOverride, e.span)
+		e.translator = translator.NewEmbeddingOpenAIToAzureOpenAITranslator(out.Version, e.modelNameOverride)
 	default:
 		return fmt.Errorf("unsupported API schema: backend=%s", out)
 	}
@@ -342,7 +342,7 @@ func (e *embeddingsProcessorUpstreamFilter) ProcessResponseBody(ctx context.Cont
 		}, nil
 	}
 
-	newHeaders, newBody, tokenUsage, responseModel, err := e.translator.ResponseBody(e.responseHeaders, decodingResult.reader, body.EndOfStream, nil)
+	newHeaders, newBody, tokenUsage, responseModel, err := e.translator.ResponseBody(e.responseHeaders, decodingResult.reader, body.EndOfStream, e.span)
 	if err != nil {
 		return nil, fmt.Errorf("failed to transform response: %w", err)
 	}
