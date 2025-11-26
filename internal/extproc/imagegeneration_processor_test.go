@@ -19,6 +19,7 @@ import (
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	openaisdk "github.com/openai/openai-go/v2"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 	"github.com/envoyproxy/ai-gateway/internal/filterapi"
@@ -59,19 +60,14 @@ func Test_imageGenerationProcessorUpstreamFilter_SelectTranslator(t *testing.T) 
 }
 
 type mockImageGenerationTracer struct {
-	tracing.NoopImageGenerationTracer
+	tracing.NoopTracer[openaisdk.ImageGenerateParams, tracing.ImageGenerationSpan]
 	startSpanCalled bool
 	returnedSpan    tracing.ImageGenerationSpan
 }
 
-func (m *mockImageGenerationTracer) StartSpanAndInjectHeaders(_ context.Context, _ map[string]string, headerMutation *extprocv3.HeaderMutation, _ *openaisdk.ImageGenerateParams, _ []byte) tracing.ImageGenerationSpan {
+func (m *mockImageGenerationTracer) StartSpanAndInjectHeaders(_ context.Context, _ map[string]string, carrier propagation.TextMapCarrier, _ *openaisdk.ImageGenerateParams, _ []byte) tracing.ImageGenerationSpan {
 	m.startSpanCalled = true
-	headerMutation.SetHeaders = append(headerMutation.SetHeaders, &corev3.HeaderValueOption{
-		Header: &corev3.HeaderValue{
-			Key:   "tracing-header",
-			Value: "1",
-		},
-	})
+	carrier.Set("tracing-header", "1")
 	if m.returnedSpan != nil {
 		return m.returnedSpan
 	}
@@ -97,6 +93,7 @@ func (m *mockImageGenerationSpan) EndSpanOnError(status int, body []byte) {
 func (m *mockImageGenerationSpan) RecordResponse(_ *openaisdk.ImagesResponse) {
 	// Mock implementation
 }
+func (m *mockImageGenerationSpan) RecordResponseChunk(*struct{}) {}
 
 func Test_imageGenerationProcessorRouterFilter_ProcessRequestBody(t *testing.T) {
 	t.Run("response pass-through and delegation", func(t *testing.T) {
@@ -181,8 +178,8 @@ func Test_imageGenerationProcessorRouterFilter_ProcessRequestBody(t *testing.T) 
 		headerMutation := re.RequestBody.GetResponse().GetHeaderMutation()
 		require.Contains(t, headerMutation.SetHeaders, &corev3.HeaderValueOption{
 			Header: &corev3.HeaderValue{
-				Key:   "tracing-header",
-				Value: "1",
+				Key:      "tracing-header",
+				RawValue: []byte("1"),
 			},
 		})
 	})

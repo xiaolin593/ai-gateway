@@ -10,7 +10,6 @@ package api
 import (
 	"context"
 
-	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	openaisdk "github.com/openai/openai-go/v2"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
@@ -19,39 +18,114 @@ import (
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 )
 
-var _ Tracing = NoopTracing{}
-
-// Tracing gives access to tracer types needed for endpoints such as OpenAI
-// chat completions, image generation, embeddings, and MCP requests.
-type Tracing interface {
-	// ChatCompletionTracer creates spans for OpenAI chat completion requests on /chat/completions endpoint.
-	ChatCompletionTracer() ChatCompletionTracer
+type (
+	// Tracing gives access to tracer types needed for endpoints such as OpenAI
+	// chat completions, image generation, embeddings, and MCP requests.
+	Tracing interface {
+		// ChatCompletionTracer creates spans for OpenAI chat completion requests on /chat/completions endpoint.
+		ChatCompletionTracer() ChatCompletionTracer
+		// ImageGenerationTracer creates spans for OpenAI image generation requests.
+		ImageGenerationTracer() ImageGenerationTracer
+		// CompletionTracer creates spans for OpenAI completion requests on /completions endpoint.
+		CompletionTracer() CompletionTracer
+		// EmbeddingsTracer creates spans for OpenAI embeddings requests on /embeddings endpoint.
+		EmbeddingsTracer() EmbeddingsTracer
+		// RerankTracer creates spans for rerank requests.
+		RerankTracer() RerankTracer
+		// MCPTracer creates spans for MCP requests.
+		MCPTracer() MCPTracer
+		// Shutdown shuts down the tracer, flushing any buffered spans.
+		Shutdown(context.Context) error
+	}
+	// RequestTracer standardizes tracer implementations for non-MCP requests.
+	RequestTracer[ReqT any, SpanT any] interface {
+		// StartSpanAndInjectHeaders starts a span and injects trace context into the header mutation.
+		//
+		// Parameters:
+		//   - ctx: might include a parent span context.
+		//   - headers: Incoming HTTP headers used to extract parent trace context.
+		//   - headerMutation: The new span will have its context written to these headers unless NoopTracing is used.
+		//   - req: The typed request used to detect streaming and record request attributes.
+		//   - body: contains the original raw request body as a byte slice.
+		//
+		// Returns nil unless the span is sampled.
+		StartSpanAndInjectHeaders(ctx context.Context, headers map[string]string, carrier propagation.TextMapCarrier, req *ReqT, body []byte) SpanT
+	}
+	// ChatCompletionTracer creates spans for OpenAI chat completion requests.
+	ChatCompletionTracer = RequestTracer[openai.ChatCompletionRequest, ChatCompletionSpan]
+	// CompletionTracer creates spans for OpenAI completion requests.
+	CompletionTracer = RequestTracer[openai.CompletionRequest, CompletionSpan]
+	// EmbeddingsTracer creates spans for OpenAI embeddings requests.
+	EmbeddingsTracer = RequestTracer[openai.EmbeddingRequest, EmbeddingsSpan]
 	// ImageGenerationTracer creates spans for OpenAI image generation requests.
-	ImageGenerationTracer() ImageGenerationTracer
-	// CompletionTracer creates spans for OpenAI completion requests on /completions endpoint.
-	CompletionTracer() CompletionTracer
-	// EmbeddingsTracer creates spans for OpenAI embeddings requests on /embeddings endpoint.
-	EmbeddingsTracer() EmbeddingsTracer
+	ImageGenerationTracer = RequestTracer[openaisdk.ImageGenerateParams, ImageGenerationSpan]
 	// RerankTracer creates spans for rerank requests.
-	RerankTracer() RerankTracer
-	// MCPTracer creates spans for MCP requests.
-	MCPTracer() MCPTracer
-	// Shutdown shuts down the tracer, flushing any buffered spans.
-	Shutdown(context.Context) error
-}
+	RerankTracer = RequestTracer[cohere.RerankV2Request, RerankSpan]
+)
 
-// TracingConfig is used when Tracing is not NoopTracing.
-//
-// Implementations of the Tracing interface.
-type TracingConfig struct {
-	Tracer                  trace.Tracer
-	Propagator              propagation.TextMapPropagator
-	ChatCompletionRecorder  ChatCompletionRecorder
-	CompletionRecorder      CompletionRecorder
-	ImageGenerationRecorder ImageGenerationRecorder
-	EmbeddingsRecorder      EmbeddingsRecorder
-	RerankRecorder          RerankRecorder
-}
+type (
+	// Span standardizes span interfaces, supporting both streaming and non-streaming endpoints.
+	Span[ChunkT any, RespT any] interface {
+		// RecordResponseChunk records streaming response chunks. Implementations that do not support streaming should provide a no-op implementation.
+		RecordResponseChunk(resp *ChunkT)
+		// RecordResponse records the response attributes to the span.
+		RecordResponse(resp *RespT)
+		// EndSpanOnError finalizes and ends the span with an error status.
+		EndSpanOnError(statusCode int, body []byte)
+		// EndSpan finalizes and ends the span.
+		EndSpan()
+	}
+	// ChatCompletionSpan represents an OpenAI chat completion.
+	ChatCompletionSpan = Span[openai.ChatCompletionResponseChunk, openai.ChatCompletionResponse]
+	// CompletionSpan represents an OpenAI completion request.
+	// Note: Completion streaming chunks are full CompletionResponse objects, not deltas like chat completions.
+	CompletionSpan = Span[openai.CompletionResponse, openai.CompletionResponse]
+	// EmbeddingsSpan represents an OpenAI embeddings request. The chunk type is unused and therefore set to struct{}.
+	EmbeddingsSpan = Span[struct{}, openai.EmbeddingResponse]
+	// ImageGenerationSpan represents an OpenAI image generation.
+	ImageGenerationSpan = Span[struct{}, openaisdk.ImagesResponse]
+	// RerankSpan represents a rerank request span.
+	RerankSpan = Span[struct{}, cohere.RerankV2Response]
+)
+
+type (
+	// SpanRecorder standardizes recorder implementations for non-MCP tracers.
+	SpanRecorder[ReqT any, ChunkT any, RespT any] interface {
+		// StartParams returns the name and options to start the span with.
+		//
+		// Parameters:
+		//   - req: contains the typed request.
+		//   - body: contains the complete request body.
+		//
+		// Note: Avoid expensive data conversions since the span might not be sampled.
+		StartParams(req *ReqT, body []byte) (spanName string, opts []trace.SpanStartOption)
+		// RecordRequest records request attributes to the span.
+		RecordRequest(span trace.Span, req *ReqT, body []byte)
+		// RecordResponse records response attributes to the span.
+		RecordResponse(span trace.Span, resp *RespT)
+		// RecordResponseOnError ends recording the span with an error status.
+		RecordResponseOnError(span trace.Span, statusCode int, body []byte)
+		// RecordResponseChunks records response chunk attributes to the span for streaming response.
+		RecordResponseChunks(span trace.Span, chunks []*ChunkT)
+	}
+	// ChatCompletionRecorder records attributes to a span according to a semantic convention.
+	ChatCompletionRecorder = SpanRecorder[openai.ChatCompletionRequest, openai.ChatCompletionResponseChunk, openai.ChatCompletionResponse]
+	// CompletionRecorder records attributes to a span according to a semantic convention.
+	// Note: Completion streaming chunks are full CompletionResponse objects, not deltas like chat completions.
+	CompletionRecorder = SpanRecorder[openai.CompletionRequest, openai.CompletionResponse, openai.CompletionResponse]
+	// ImageGenerationRecorder records attributes to a span according to a semantic convention.
+	ImageGenerationRecorder = SpanRecorder[openaisdk.ImageGenerateParams, struct{}, openaisdk.ImagesResponse]
+	// EmbeddingsRecorder records attributes to a span according to a semantic convention.
+	EmbeddingsRecorder = SpanRecorder[openai.EmbeddingRequest, struct{}, openai.EmbeddingResponse]
+	// RerankRecorder records attributes to a span according to a semantic convention.
+	RerankRecorder = SpanRecorder[cohere.RerankV2Request, struct{}, cohere.RerankV2Response]
+)
+
+// NoopChunkRecorder provides a no-op RecordResponseChunks implementation for recorders that don't emit streaming chunks.
+type NoopChunkRecorder[ChunkT any] struct{}
+
+// RecordResponseChunks implements SpanRecorder.RecordResponseChunks as a no-op.
+func (NoopChunkRecorder[ChunkT]) RecordResponseChunks(trace.Span, []*ChunkT) {}
 
 // NoopTracing is a Tracing that doesn't do anything.
 type NoopTracing struct{}
@@ -62,27 +136,27 @@ func (t NoopTracing) MCPTracer() MCPTracer {
 
 // ChatCompletionTracer implements Tracing.ChatCompletionTracer.
 func (NoopTracing) ChatCompletionTracer() ChatCompletionTracer {
-	return NoopChatCompletionTracer{}
+	return NoopTracer[openai.ChatCompletionRequest, ChatCompletionSpan]{}
 }
 
 // CompletionTracer implements Tracing.CompletionTracer.
 func (NoopTracing) CompletionTracer() CompletionTracer {
-	return NoopCompletionTracer{}
+	return NoopTracer[openai.CompletionRequest, CompletionSpan]{}
 }
 
 // EmbeddingsTracer implements Tracing.EmbeddingsTracer.
 func (NoopTracing) EmbeddingsTracer() EmbeddingsTracer {
-	return NoopEmbeddingsTracer{}
+	return NoopTracer[openai.EmbeddingRequest, EmbeddingsSpan]{}
 }
 
 // ImageGenerationTracer implements Tracing.ImageGenerationTracer.
 func (NoopTracing) ImageGenerationTracer() ImageGenerationTracer {
-	return NoopImageGenerationTracer{}
+	return NoopTracer[openaisdk.ImageGenerateParams, ImageGenerationSpan]{}
 }
 
 // RerankTracer implements Tracing.RerankTracer.
 func (NoopTracing) RerankTracer() RerankTracer {
-	return NoopRerankTracer{}
+	return NoopTracer[cohere.RerankV2Request, RerankSpan]{}
 }
 
 // Shutdown implements Tracing.Shutdown.
@@ -90,336 +164,11 @@ func (NoopTracing) Shutdown(context.Context) error {
 	return nil
 }
 
-// ChatCompletionTracer creates spans for OpenAI chat completion requests.
-type ChatCompletionTracer interface {
-	// StartSpanAndInjectHeaders starts a span and injects trace context into
-	// the header mutation.
-	//
-	// Parameters:
-	//   - ctx: might include a parent span context.
-	//   - headers: Incoming HTTP headers used to extract parent trace context.
-	//   - headerMutation: The new LLM Span will have its context written to
-	//     these headers unless NoopTracing is used.
-	//   - req: The OpenAI chat completion request. Used to detect streaming
-	//     and record request attributes.
-	//
-	// Returns nil unless the span is sampled.
-	StartSpanAndInjectHeaders(ctx context.Context, headers map[string]string, headerMutation *extprocv3.HeaderMutation, req *openai.ChatCompletionRequest, body []byte) ChatCompletionSpan
-}
+// NoopTracer implements RequestTracer without producing spans.
+type NoopTracer[ReqT any, SpanT any] struct{}
 
-// ChatCompletionSpan represents an OpenAI chat completion.
-type ChatCompletionSpan interface {
-	// RecordResponseChunk records the response chunk attributes to the span for streaming response.
-	RecordResponseChunk(resp *openai.ChatCompletionResponseChunk)
-
-	// RecordResponse records the response attributes to the span for non-streaming response.
-	RecordResponse(resp *openai.ChatCompletionResponse)
-
-	// EndSpanOnError finalizes and ends the span with an error status.
-	EndSpanOnError(statusCode int, body []byte)
-
-	// EndSpan finalizes and ends the span.
-	EndSpan()
-}
-
-// ChatCompletionRecorder records attributes to a span according to a semantic
-// convention.
-type ChatCompletionRecorder interface {
-	// StartParams returns the name and options to start the span with.
-	//
-	// Parameters:
-	//   - req: contains the completion request
-	//   - body: contains the complete request body.
-	//
-	// Note: Do not do any expensive data conversions as the span might not be
-	// sampled.
-	StartParams(req *openai.ChatCompletionRequest, body []byte) (spanName string, opts []trace.SpanStartOption)
-
-	// RecordRequest records request attributes to the span.
-	//
-	// Parameters:
-	//   - req: contains the completion request
-	//   - body: contains the complete request body.
-	RecordRequest(span trace.Span, req *openai.ChatCompletionRequest, body []byte)
-
-	// RecordResponseChunks records response chunk attributes to the span for streaming response.
-	RecordResponseChunks(span trace.Span, chunks []*openai.ChatCompletionResponseChunk)
-
-	// RecordResponse records response attributes to the span for non-streaming response.
-	RecordResponse(span trace.Span, resp *openai.ChatCompletionResponse)
-
-	// RecordResponseOnError ends recording the span with an error status.
-	RecordResponseOnError(span trace.Span, statusCode int, body []byte)
-}
-
-// NoopChatCompletionTracer is a ChatCompletionTracer that doesn't do anything.
-type NoopChatCompletionTracer struct{}
-
-// StartSpanAndInjectHeaders implements ChatCompletionTracer.StartSpanAndInjectHeaders.
-func (NoopChatCompletionTracer) StartSpanAndInjectHeaders(context.Context, map[string]string, *extprocv3.HeaderMutation, *openai.ChatCompletionRequest, []byte) ChatCompletionSpan {
-	return nil
-}
-
-// CompletionTracer creates spans for OpenAI completion requests.
-type CompletionTracer interface {
-	// StartSpanAndInjectHeaders starts a span and injects trace context into
-	// the header mutation.
-	//
-	// Parameters:
-	//   - ctx: might include a parent span context.
-	//   - headers: Incoming HTTP headers used to extract parent trace context.
-	//   - headerMutation: The new LLM Span will have its context written to
-	//     these headers unless NoopTracing is used.
-	//   - req: The OpenAI completion request. Used to detect streaming
-	//     and record request attributes.
-	//   - body: contains the original raw request body as a byte slice.
-	//
-	// Returns nil unless the span is sampled.
-	StartSpanAndInjectHeaders(ctx context.Context, headers map[string]string, headerMutation *extprocv3.HeaderMutation, req *openai.CompletionRequest, body []byte) CompletionSpan
-}
-
-// CompletionSpan represents an OpenAI completion request.
-type CompletionSpan interface {
-	// RecordResponseChunk records the response chunk attributes to the span for streaming response.
-	// Note: Unlike chat completions, completion streaming uses full CompletionResponse objects, not deltas.
-	RecordResponseChunk(resp *openai.CompletionResponse)
-
-	// RecordResponse records the response attributes to the span for non-streaming response.
-	RecordResponse(resp *openai.CompletionResponse)
-
-	// EndSpanOnError finalizes and ends the span with an error status.
-	EndSpanOnError(statusCode int, body []byte)
-
-	// EndSpan finalizes and ends the span.
-	EndSpan()
-}
-
-// CompletionRecorder records attributes to a span according to a semantic
-// convention.
-type CompletionRecorder interface {
-	// StartParams returns the name and options to start the span with.
-	//
-	// Parameters:
-	//   - req: contains the completion request
-	//   - body: contains the complete request body.
-	//
-	// Note: Do not do any expensive data conversions as the span might not be
-	// sampled.
-	StartParams(req *openai.CompletionRequest, body []byte) (spanName string, opts []trace.SpanStartOption)
-
-	// RecordRequest records request attributes to the span.
-	//
-	// Parameters:
-	//   - req: contains the completion request
-	//   - body: contains the complete request body.
-	RecordRequest(span trace.Span, req *openai.CompletionRequest, body []byte)
-
-	// RecordResponseChunks records response chunk attributes to the span for streaming response.
-	// Note: Completion chunks are full CompletionResponse objects, not deltas like chat.
-	RecordResponseChunks(span trace.Span, chunks []*openai.CompletionResponse)
-
-	// RecordResponse records response attributes to the span for non-streaming response.
-	RecordResponse(span trace.Span, resp *openai.CompletionResponse)
-
-	// RecordResponseOnError ends recording the span with an error status.
-	RecordResponseOnError(span trace.Span, statusCode int, body []byte)
-}
-
-// NoopCompletionTracer is a CompletionTracer that doesn't do anything.
-type NoopCompletionTracer struct{}
-
-// StartSpanAndInjectHeaders implements CompletionTracer.StartSpanAndInjectHeaders.
-func (NoopCompletionTracer) StartSpanAndInjectHeaders(context.Context, map[string]string, *extprocv3.HeaderMutation, *openai.CompletionRequest, []byte) CompletionSpan {
-	return nil
-}
-
-// EmbeddingsTracer creates spans for OpenAI embeddings requests.
-type EmbeddingsTracer interface {
-	// StartSpanAndInjectHeaders starts a span and injects trace context into
-	// the header mutation.
-	//
-	// Parameters:
-	//   - ctx: might include a parent span context.
-	//   - headers: Incoming HTTP headers used to extract parent trace context.
-	//   - headerMutation: The new Embeddings Span will have its context
-	//     written to these headers unless NoopTracing is used.
-	//   - req: The OpenAI embeddings request. Used to record request attributes.
-	//   - body: contains the original raw request body as a byte slice.
-	//
-	// Returns nil unless the span is sampled.
-	StartSpanAndInjectHeaders(ctx context.Context, headers map[string]string, headerMutation *extprocv3.HeaderMutation, req *openai.EmbeddingRequest, body []byte) EmbeddingsSpan
-}
-
-// EmbeddingsSpan represents an OpenAI embeddings request.
-type EmbeddingsSpan interface {
-	// RecordResponse records the response attributes to the span.
-	RecordResponse(resp *openai.EmbeddingResponse)
-
-	// EndSpanOnError finalizes and ends the span with an error status.
-	EndSpanOnError(statusCode int, body []byte)
-
-	// EndSpan finalizes and ends the span.
-	EndSpan()
-}
-
-// ImageGenerationTracer creates spans for OpenAI image generation requests.
-type ImageGenerationTracer interface {
-	// StartSpanAndInjectHeaders starts a span and injects trace context into
-	// the header mutation.
-	//
-	// Parameters:
-	//   - ctx: might include a parent span context.
-	//   - headers: Incoming HTTP headers used to extract parent trace context.
-	//   - headerMutation: The new LLM Span will have its context written to
-	//     these headers unless NoopTracer is used.
-	//   - req: The OpenAI image generation request. Used to record request attributes.
-	//
-	// Returns nil unless the span is sampled.
-	StartSpanAndInjectHeaders(ctx context.Context, headers map[string]string, headerMutation *extprocv3.HeaderMutation, req *openaisdk.ImageGenerateParams, body []byte) ImageGenerationSpan
-}
-
-// ImageGenerationSpan represents an OpenAI image generation.
-type ImageGenerationSpan interface {
-	// RecordResponse records the response attributes to the span.
-	RecordResponse(resp *openaisdk.ImagesResponse)
-
-	// EndSpanOnError finalizes and ends the span with an error status.
-	EndSpanOnError(statusCode int, body []byte)
-
-	// EndSpan finalizes and ends the span.
-	EndSpan()
-}
-
-// ImageGenerationRecorder records attributes to a span according to a semantic
-// convention.
-type ImageGenerationRecorder interface {
-	// StartParams returns the name and options to start the span with.
-	//
-	// Parameters:
-	//   - req: contains the image generation request
-	//   - body: contains the complete request body.
-	//
-	// Note: Do not do any expensive data conversions as the span might not be
-	// sampled.
-	StartParams(req *openaisdk.ImageGenerateParams, body []byte) (spanName string, opts []trace.SpanStartOption)
-
-	// RecordRequest records request attributes to the span.
-	//
-	// Parameters:
-	//   - req: contains the image generation request
-	//   - body: contains the complete request body.
-	RecordRequest(span trace.Span, req *openaisdk.ImageGenerateParams, body []byte)
-
-	// RecordResponse records response attributes to the span.
-	RecordResponse(span trace.Span, resp *openaisdk.ImagesResponse)
-
-	// RecordResponseOnError ends recording the span with an error status.
-	RecordResponseOnError(span trace.Span, statusCode int, body []byte)
-}
-
-// EmbeddingsRecorder records attributes to a span according to a semantic
-// convention.
-type EmbeddingsRecorder interface {
-	// StartParams returns the name and options to start the span with.
-	//
-	// Parameters:
-	//   - req: contains the embeddings request
-	//   - body: contains the complete request body.
-	//
-	// Note: Do not do any expensive data conversions as the span might not be
-	// sampled.
-	StartParams(req *openai.EmbeddingRequest, body []byte) (spanName string, opts []trace.SpanStartOption)
-
-	// RecordRequest records request attributes to the span.
-	//
-	// Parameters:
-	//   - req: contains the embeddings request
-	//   - body: contains the complete request body.
-	RecordRequest(span trace.Span, req *openai.EmbeddingRequest, body []byte)
-
-	// RecordResponse records response attributes to the span.
-	RecordResponse(span trace.Span, resp *openai.EmbeddingResponse)
-
-	// RecordResponseOnError ends recording the span with an error status.
-	RecordResponseOnError(span trace.Span, statusCode int, body []byte)
-}
-
-// NoopImageGenerationTracer is a ImageGenerationTracer that doesn't do anything.
-type NoopImageGenerationTracer struct{}
-
-// StartSpanAndInjectHeaders implements ImageGenerationTracer.StartSpanAndInjectHeaders.
-func (NoopImageGenerationTracer) StartSpanAndInjectHeaders(context.Context, map[string]string, *extprocv3.HeaderMutation, *openaisdk.ImageGenerateParams, []byte) ImageGenerationSpan {
-	return nil
-}
-
-// NoopEmbeddingsTracer is an EmbeddingsTracer that doesn't do anything.
-type NoopEmbeddingsTracer struct{}
-
-// StartSpanAndInjectHeaders implements EmbeddingsTracer.StartSpanAndInjectHeaders.
-func (NoopEmbeddingsTracer) StartSpanAndInjectHeaders(context.Context, map[string]string, *extprocv3.HeaderMutation, *openai.EmbeddingRequest, []byte) EmbeddingsSpan {
-	return nil
-}
-
-// RerankTracer creates spans for rerank requests.
-type RerankTracer interface {
-	// StartSpanAndInjectHeaders starts a span and injects trace context into
-	// the header mutation.
-	//
-	// Parameters:
-	//   - ctx: might include a parent span context.
-	//   - headers: Incoming HTTP headers used to extract parent trace context.
-	//   - headerMutation: The new Rerank Span will have its context
-	//     written to these headers unless NoopTracing is used.
-	//   - req: The Cohere rerank request. Used to record request attributes.
-	//   - body: contains the original raw request body as a byte slice.
-	//
-	// Returns nil unless the span is sampled.
-	StartSpanAndInjectHeaders(ctx context.Context, headers map[string]string, headerMutation *extprocv3.HeaderMutation, req *cohere.RerankV2Request, body []byte) RerankSpan
-}
-
-// RerankSpan represents a rerank request span.
-type RerankSpan interface {
-	// RecordResponse records the response attributes to the span.
-	RecordResponse(resp *cohere.RerankV2Response)
-
-	// EndSpanOnError finalizes and ends the span with an error status.
-	EndSpanOnError(statusCode int, body []byte)
-
-	// EndSpan finalizes and ends the span.
-	EndSpan()
-}
-
-// RerankRecorder records attributes to a span according to a semantic
-// convention.
-type RerankRecorder interface {
-	// StartParams returns the name and options to start the span with.
-	//
-	// Parameters:
-	//   - req: contains the rerank request
-	//   - body: contains the complete request body.
-	//
-	// Note: Do not do any expensive data conversions as the span might not be
-	// sampled.
-	StartParams(req *cohere.RerankV2Request, body []byte) (spanName string, opts []trace.SpanStartOption)
-
-	// RecordRequest records request attributes to the span.
-	//
-	// Parameters:
-	//   - req: contains the rerank request
-	//   - body: contains the complete request body.
-	RecordRequest(span trace.Span, req *cohere.RerankV2Request, body []byte)
-
-	// RecordResponse records response attributes to the span.
-	RecordResponse(span trace.Span, resp *cohere.RerankV2Response)
-
-	// RecordResponseOnError ends recording the span with an error status.
-	RecordResponseOnError(span trace.Span, statusCode int, body []byte)
-}
-
-// NoopRerankTracer is a RerankTracer that doesn't do anything.
-type NoopRerankTracer struct{}
-
-// StartSpanAndInjectHeaders implements RerankTracer.StartSpanAndInjectHeaders.
-func (NoopRerankTracer) StartSpanAndInjectHeaders(context.Context, map[string]string, *extprocv3.HeaderMutation, *cohere.RerankV2Request, []byte) RerankSpan {
-	return nil
+// StartSpanAndInjectHeaders implements RequestTracer.StartSpanAndInjectHeaders.
+func (NoopTracer[ReqT, SpanT]) StartSpanAndInjectHeaders(context.Context, map[string]string, propagation.TextMapCarrier, *ReqT, []byte) SpanT {
+	var zero SpanT
+	return zero
 }

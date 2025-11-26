@@ -17,6 +17,7 @@ import (
 	extprocv3http "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
@@ -70,19 +71,14 @@ func Test_chatCompletionProcessorUpstreamFilter_SelectTranslator(t *testing.T) {
 }
 
 type mockTracer struct {
-	tracing.NoopChatCompletionTracer
+	tracing.NoopTracer[openai.ChatCompletionRequest, tracing.ChatCompletionSpan]
 	startSpanCalled bool
 	returnedSpan    tracing.ChatCompletionSpan
 }
 
-func (m *mockTracer) StartSpanAndInjectHeaders(_ context.Context, _ map[string]string, headerMutation *extprocv3.HeaderMutation, _ *openai.ChatCompletionRequest, _ []byte) tracing.ChatCompletionSpan {
+func (m *mockTracer) StartSpanAndInjectHeaders(_ context.Context, _ map[string]string, carrier propagation.TextMapCarrier, _ *openai.ChatCompletionRequest, _ []byte) tracing.ChatCompletionSpan {
 	m.startSpanCalled = true
-	headerMutation.SetHeaders = append(headerMutation.SetHeaders, &corev3.HeaderValueOption{
-		Header: &corev3.HeaderValue{
-			Key:   "tracing-header",
-			Value: "1",
-		},
-	})
+	carrier.Set("tracing-header", "1")
 	if m.returnedSpan != nil {
 		return m.returnedSpan
 	}
@@ -92,7 +88,7 @@ func (m *mockTracer) StartSpanAndInjectHeaders(_ context.Context, _ map[string]s
 func Test_chatCompletionProcessorRouterFilter_ProcessRequestBody(t *testing.T) {
 	t.Run("body parser error", func(t *testing.T) {
 		p := &chatCompletionProcessorRouterFilter{
-			tracer: tracing.NoopChatCompletionTracer{},
+			tracer: tracing.NoopTracer[openai.ChatCompletionRequest, tracing.ChatCompletionSpan]{},
 		}
 		_, err := p.ProcessRequestBody(t.Context(), &extprocv3.HttpBody{Body: []byte("nonjson")})
 		require.ErrorContains(t, err, "invalid character 'o' in literal null")
@@ -104,7 +100,7 @@ func Test_chatCompletionProcessorRouterFilter_ProcessRequestBody(t *testing.T) {
 			config:         &filterapi.RuntimeConfig{},
 			requestHeaders: headers,
 			logger:         slog.Default(),
-			tracer:         tracing.NoopChatCompletionTracer{},
+			tracer:         tracing.NoopTracer[openai.ChatCompletionRequest, tracing.ChatCompletionSpan]{},
 		}
 		resp, err := p.ProcessRequestBody(t.Context(), &extprocv3.HttpBody{Body: bodyFromModel(t, "some-model", false, nil)})
 		require.NoError(t, err)
@@ -147,8 +143,8 @@ func Test_chatCompletionProcessorRouterFilter_ProcessRequestBody(t *testing.T) {
 		headerMutation := re.RequestBody.GetResponse().GetHeaderMutation()
 		require.Contains(t, headerMutation.SetHeaders, &corev3.HeaderValueOption{
 			Header: &corev3.HeaderValue{
-				Key:   "tracing-header",
-				Value: "1",
+				Key:      "tracing-header",
+				RawValue: []byte("1"),
 			},
 		})
 	})
@@ -163,7 +159,7 @@ func Test_chatCompletionProcessorRouterFilter_ProcessRequestBody(t *testing.T) {
 				},
 				requestHeaders: headers,
 				logger:         slog.Default(),
-				tracer:         tracing.NoopChatCompletionTracer{},
+				tracer:         tracing.NoopTracer[openai.ChatCompletionRequest, tracing.ChatCompletionSpan]{},
 			}
 			resp, err := p.ProcessRequestBody(t.Context(), &extprocv3.HttpBody{Body: bodyFromModel(t, "some-model", true, opt)})
 			require.NoError(t, err)
