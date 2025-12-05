@@ -9,6 +9,7 @@ import (
 	openaisdk "github.com/openai/openai-go/v2"
 	"go.opentelemetry.io/otel/trace"
 
+	anthropicschema "github.com/envoyproxy/ai-gateway/internal/apischema/anthropic"
 	cohereschema "github.com/envoyproxy/ai-gateway/internal/apischema/cohere"
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 	tracing "github.com/envoyproxy/ai-gateway/internal/tracing/api"
@@ -51,4 +52,5 @@ type (
 	embeddingsSpan      = span[openai.EmbeddingResponse, struct{}]
 	imageGenerationSpan = span[openaisdk.ImagesResponse, struct{}]
 	rerankSpan          = span[cohereschema.RerankV2Response, struct{}]
+	messageSpan         = span[anthropicschema.MessagesResponse, anthropicschema.MessagesStreamChunk]
 )
