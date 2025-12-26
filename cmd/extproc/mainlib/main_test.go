@@ -214,6 +214,7 @@ func TestExtProcStartupMessage(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
 	require.NoError(t, os.WriteFile(configPath, []byte(`
+version: dev
 backends:
 - name: openai
   schema:
