@@ -1447,10 +1447,11 @@ func TestOpenAIToAWSBedrockTranslatorV1ChatCompletion_ResponseBody(t *testing.T)
 			name: "basic_testing",
 			input: awsbedrock.ConverseResponse{
 				Usage: &awsbedrock.TokenUsage{
-					InputTokens:          10,
-					OutputTokens:         20,
-					TotalTokens:          30,
-					CacheReadInputTokens: ptr.To(5),
+					InputTokens:           10,
+					OutputTokens:          20,
+					TotalTokens:           30,
+					CacheReadInputTokens:  ptr.To(5),
+					CacheWriteInputTokens: ptr.To(7),
 				},
 				Output: &awsbedrock.ConverseOutput{
 					Message: awsbedrock.Message{
@@ -1473,7 +1474,8 @@ func TestOpenAIToAWSBedrockTranslatorV1ChatCompletion_ResponseBody(t *testing.T)
 					PromptTokens:     10,
 					CompletionTokens: 20,
 					PromptTokensDetails: &openai.PromptTokensDetails{
-						CachedTokens: 5,
+						CachedTokens:        5,
+						CacheCreationTokens: 7,
 					},
 				},
 				Choices: []openai.ChatCompletionResponseChoice{
@@ -1715,14 +1717,18 @@ func TestOpenAIToAWSBedrockTranslatorV1ChatCompletion_ResponseBody(t *testing.T)
 				expectedUsage = tokenUsageFrom(
 					int32(tt.output.Usage.PromptTokens), // nolint:gosec
 					-1,
+					-1,
 					int32(tt.output.Usage.CompletionTokens), // nolint:gosec
 					int32(tt.output.Usage.TotalTokens),      // nolint:gosec
 				)
 				if tt.input.Usage.CacheReadInputTokens != nil {
 					expectedUsage.SetCachedInputTokens(uint32(tt.output.Usage.PromptTokensDetails.CachedTokens)) //nolint:gosec
 				}
+				if tt.input.Usage.CacheWriteInputTokens != nil {
+					expectedUsage.SetCacheCreationInputTokens(uint32(tt.output.Usage.PromptTokensDetails.CacheCreationTokens)) //nolint:gosec
+				}
 			} else {
-				expectedUsage = tokenUsageFrom(-1, -1, -1, -1)
+				expectedUsage = tokenUsageFrom(-1, -1, -1, -1, -1)
 			}
 			require.Equal(t, expectedUsage, usedToken)
 		})

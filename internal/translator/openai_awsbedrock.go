@@ -707,6 +707,9 @@ func (o *openAIToAWSBedrockTranslatorV1ChatCompletion) ResponseBody(_ map[string
 				if usage.CacheReadInputTokens != nil {
 					tokenUsage.SetCachedInputTokens(uint32(*usage.CacheReadInputTokens)) //nolint:gosec
 				}
+				if usage.CacheWriteInputTokens != nil {
+					tokenUsage.SetCacheCreationInputTokens(uint32(*usage.CacheWriteInputTokens)) //nolint:gosec
+				}
 			}
 			oaiEvent, ok := o.convertEvent(event)
 			if !ok {
@@ -749,11 +752,16 @@ func (o *openAIToAWSBedrockTranslatorV1ChatCompletion) ResponseBody(_ map[string
 			PromptTokens:     bedrockResp.Usage.InputTokens,
 			CompletionTokens: bedrockResp.Usage.OutputTokens,
 		}
+		if bedrockResp.Usage.CacheReadInputTokens != nil || bedrockResp.Usage.CacheWriteInputTokens != nil {
+			openAIResp.Usage.PromptTokensDetails = &openai.PromptTokensDetails{}
+		}
 		if bedrockResp.Usage.CacheReadInputTokens != nil {
 			tokenUsage.SetCachedInputTokens(uint32(*bedrockResp.Usage.CacheReadInputTokens)) //nolint:gosec
-			openAIResp.Usage.PromptTokensDetails = &openai.PromptTokensDetails{
-				CachedTokens: *bedrockResp.Usage.CacheReadInputTokens,
-			}
+			openAIResp.Usage.PromptTokensDetails.CachedTokens = *bedrockResp.Usage.CacheReadInputTokens
+		}
+		if bedrockResp.Usage.CacheWriteInputTokens != nil {
+			tokenUsage.SetCacheCreationInputTokens(uint32(*bedrockResp.Usage.CacheWriteInputTokens)) //nolint:gosec
+			openAIResp.Usage.PromptTokensDetails.CacheCreationTokens = *bedrockResp.Usage.CacheWriteInputTokens
 		}
 	}
 
@@ -849,10 +857,14 @@ func (o *openAIToAWSBedrockTranslatorV1ChatCompletion) convertEvent(event *awsbe
 			PromptTokens:     event.Usage.InputTokens,
 			CompletionTokens: event.Usage.OutputTokens,
 		}
+		if event.Usage.CacheReadInputTokens != nil || event.Usage.CacheWriteInputTokens != nil {
+			chunk.Usage.PromptTokensDetails = &openai.PromptTokensDetails{}
+		}
 		if event.Usage.CacheReadInputTokens != nil {
-			chunk.Usage.PromptTokensDetails = &openai.PromptTokensDetails{
-				CachedTokens: *event.Usage.CacheReadInputTokens,
-			}
+			chunk.Usage.PromptTokensDetails.CachedTokens = *event.Usage.CacheReadInputTokens
+		}
+		if event.Usage.CacheWriteInputTokens != nil {
+			chunk.Usage.PromptTokensDetails.CacheCreationTokens = *event.Usage.CacheWriteInputTokens
 		}
 	// messageStart event.
 	case awsbedrock.ConverseStreamEventTypeMessageStart.String():
