@@ -19,6 +19,8 @@ import (
 // HTTPRouteSpec defined in the AIGatewayRoute), the ai-gateway will generate the necessary configuration to do
 // the backend specific logic in the final HTTPRoute.
 //
+// +genclient
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.conditions[-1:].type`
@@ -33,6 +35,7 @@ type AIServiceBackend struct {
 
 // AIServiceBackendList contains a list of AIServiceBackends.
 //
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 type AIServiceBackendList struct {
 	metav1.TypeMeta `json:",inline"`
@@ -66,6 +69,11 @@ type AIServiceBackendSpec struct {
 	// before sending it to the backend.
 	// +optional
 	HeaderMutation *HTTPHeaderMutation `json:"headerMutation,omitempty"`
+
+	// BodyMutation defines the mutation of HTTP request body JSON fields that will be applied to the request
+	// before sending it to the backend.
+	// +optional
+	BodyMutation *HTTPBodyMutation `json:"bodyMutation,omitempty"`
 
 	// TODO: maybe add backend-level LLMRequestCost configuration that overrides the AIGatewayRoute-level LLMRequestCost.
 	// 	That may be useful for the backend that has a different cost calculation logic.

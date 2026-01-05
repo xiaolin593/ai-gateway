@@ -7,8 +7,6 @@ package extproc
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -18,7 +16,8 @@ import (
 	"google.golang.org/grpc/codes"
 
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
-	tracing "github.com/envoyproxy/ai-gateway/internal/tracing/api"
+	"github.com/envoyproxy/ai-gateway/internal/filterapi"
+	"github.com/envoyproxy/ai-gateway/internal/json"
 )
 
 // modelsProcessor implements [Processor] for the `/v1/models` endpoint.
@@ -35,15 +34,15 @@ type modelsProcessor struct {
 var _ Processor = (*modelsProcessor)(nil)
 
 // NewModelsProcessor creates a new processor that returns the list of declared models.
-func NewModelsProcessor(config *processorConfig, _ map[string]string, logger *slog.Logger, _ tracing.Tracing, isUpstreamFilter bool) (Processor, error) {
+func NewModelsProcessor(config *filterapi.RuntimeConfig, _ map[string]string, logger *slog.Logger, isUpstreamFilter bool) (Processor, error) {
 	if isUpstreamFilter {
 		return passThroughProcessor{}, nil
 	}
 	models := openai.ModelList{
 		Object: "list",
-		Data:   make([]openai.Model, 0, len(config.declaredModels)),
+		Data:   make([]openai.Model, 0, len(config.DeclaredModels)),
 	}
-	for _, m := range config.declaredModels {
+	for _, m := range config.DeclaredModels {
 		models.Data = append(models.Data, openai.Model{
 			ID:      m.Name,
 			Object:  "model",
@@ -56,8 +55,6 @@ func NewModelsProcessor(config *processorConfig, _ map[string]string, logger *sl
 
 // ProcessRequestHeaders implements [Processor.ProcessRequestHeaders].
 func (m *modelsProcessor) ProcessRequestHeaders(_ context.Context, _ *corev3.HeaderMap) (*extprocv3.ProcessingResponse, error) {
-	m.logger.Info("Serving list of declared models")
-
 	body, err := json.Marshal(m.models)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal body: %w", err)
@@ -77,23 +74,6 @@ func (m *modelsProcessor) ProcessRequestHeaders(_ context.Context, _ *corev3.Hea
 			},
 		},
 	}, nil
-}
-
-var errUnexpectedCall = errors.New("unexpected method call")
-
-// ProcessRequestBody implements [Processor.ProcessRequestBody].
-func (m *modelsProcessor) ProcessRequestBody(context.Context, *extprocv3.HttpBody) (*extprocv3.ProcessingResponse, error) {
-	return nil, fmt.Errorf("%w: ProcessRequestBody", errUnexpectedCall)
-}
-
-// ProcessResponseHeaders implements [Processor.ProcessResponseHeaders].
-func (m *modelsProcessor) ProcessResponseHeaders(context.Context, *corev3.HeaderMap) (*extprocv3.ProcessingResponse, error) {
-	return nil, fmt.Errorf("%w: ProcessResponseHeaders", errUnexpectedCall)
-}
-
-// ProcessResponseBody implements [Processor.ProcessResponseBody].
-func (m *modelsProcessor) ProcessResponseBody(context.Context, *extprocv3.HttpBody) (*extprocv3.ProcessingResponse, error) {
-	return nil, fmt.Errorf("%w: ProcessResponseBody", errUnexpectedCall)
 }
 
 func setHeader(headers *extprocv3.HeaderMutation, key, value string) {

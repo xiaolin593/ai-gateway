@@ -15,14 +15,16 @@ import (
 )
 
 const (
+	// EnvoyAIGatewayHeaderPrefix is the prefix for special headers used by AI Gateway, either for internal or external use.
+	EnvoyAIGatewayHeaderPrefix = "x-ai-eg-"
 	// InternalEndpointMetadataNamespace is the namespace used for the dynamic metadata for internal use.
 	InternalEndpointMetadataNamespace = "aigateway.envoy.io"
 	// InternalMetadataBackendNameKey is the key used to store the backend name
 	InternalMetadataBackendNameKey = "per_route_rule_backend_name"
 	// MCPBackendHeader is the special header key used to specify the target backend name.
-	MCPBackendHeader = "x-ai-eg-mcp-backend"
+	MCPBackendHeader = EnvoyAIGatewayHeaderPrefix + "mcp-backend"
 	// MCPRouteHeader is the special header key used to identify the mcp route.
-	MCPRouteHeader = "x-ai-eg-mcp-route"
+	MCPRouteHeader = EnvoyAIGatewayHeaderPrefix + "mcp-route"
 	// MCPBackendListenerPort is the port for the MCP backend listener.
 	MCPBackendListenerPort = 10088
 	// MCPProxyPort is the port where the MCP proxy listens.
@@ -62,10 +64,17 @@ const (
 )
 
 const (
+	xdsMetadataBackendNamePath = `.filter_metadata['aigateway.envoy.io']['per_route_rule_backend_name']`
 	// XDSClusterMetadataKey is the key used to access cluster metadata in xDS attributes
+	// This is for backward compatibility with the older deployment. TODO: remove this after v0.5 is released.
 	XDSClusterMetadataKey = "xds.cluster_metadata"
+	// XDSClusterMetadataBackendNamePath is the full attribute path to access the backend name in cluster metadata in xDS attributes.
+	XDSClusterMetadataBackendNamePath = XDSClusterMetadataKey + xdsMetadataBackendNamePath
 	// XDSUpstreamHostMetadataKey is the key used to access upstream host metadata in xDS attributes
+	// This is for backward compatibility with the older deployment. TODO: remove this after v0.5 is released.
 	XDSUpstreamHostMetadataKey = "xds.upstream_host_metadata"
+	// XDSUpstreamHostMetadataBackendNamePath is the full attribute path to access the backend name in upstream host metadata in xDS attributes.
+	XDSUpstreamHostMetadataBackendNamePath = XDSUpstreamHostMetadataKey + xdsMetadataBackendNamePath
 )
 
 // PerRouteRuleRefBackendName generates a unique backend name for a per-route rule,
@@ -121,6 +130,67 @@ func ParseRequestHeaderAttributeMapping(s string) (map[string]string, error) {
 	}
 
 	return result, nil
+}
+
+// EndpointPrefixes represents well-known endpoint prefixes that AI Gateway supports.
+type EndpointPrefixes struct {
+	// OpenAI defaults to "/"
+	OpenAI string
+	// Cohere defaults to "/cohere"
+	Cohere string
+	// Anthropic defaults to "/anthropic"
+	Anthropic string
+}
+
+// ParseEndpointPrefixes parses a comma-separated list of key:value pairs to populate EndpointPrefixes.
+//
+// Recognized keys (case-sensitive):
+//   - openai
+//   - cohere
+//   - anthropic
+//
+// Format example:
+//
+//	"openai:/,cohere:/cohere,anthropic:/anthropic"
+//
+// Unknown keys cause an error; values must be non-empty.
+func ParseEndpointPrefixes(s string) (EndpointPrefixes, error) {
+	out := EndpointPrefixes{
+		OpenAI:    "/",
+		Cohere:    "/cohere",
+		Anthropic: "/anthropic",
+	}
+	if s == "" {
+		return out, nil
+	}
+
+	pairs := strings.Split(s, ",")
+	for i, pair := range pairs {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			return EndpointPrefixes{}, fmt.Errorf("empty endpointPrefixes pair at position %d", i+1)
+		}
+
+		parts := strings.SplitN(pair, ":", 2)
+		if len(parts) != 2 {
+			return EndpointPrefixes{}, fmt.Errorf("invalid endpointPrefixes pair at position %d: %q (expected format: key:value)", i+1, pair)
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		switch key {
+		case "openai":
+			out.OpenAI = value
+		case "cohere":
+			out.Cohere = value
+		case "anthropic":
+			out.Anthropic = value
+		default:
+			return EndpointPrefixes{}, fmt.Errorf("unknown endpointPrefixes key %q at position %d (allowed: openai, cohere, anthropic)", key, i+1)
+		}
+	}
+	return out, nil
 }
 
 // ModelNameHeaderKeyDefault is the default header key for the model name.

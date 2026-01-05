@@ -14,9 +14,9 @@ GO_TOOL := go tool -modfile=tools/go.mod
 COMMANDS := controller extproc
 
 # This is the package that contains the version information for the build.
-GIT_COMMIT:=$(shell git rev-parse HEAD)
+VERSION_STRING:=$(shell git describe --tags --long)
 VERSION_PACKAGE := github.com/envoyproxy/ai-gateway/internal/version
-GO_LDFLAGS += -X $(VERSION_PACKAGE).Version=$(GIT_COMMIT)
+GO_LDFLAGS += -X $(VERSION_PACKAGE).version=$(VERSION_STRING)
 
 # This is the directory where the built artifacts will be placed.
 OUTPUT_DIR ?= out
@@ -30,9 +30,9 @@ HELM_CHART_VERSION ?= v0.0.0-latest
 
 # Arguments for go test. This can be used, for example, to run specific tests via
 # `GO_TEST_ARGS="-run TestName/foo/etc -v -race"`.
-GO_TEST_ARGS ?= -race
-# Arguments for go test in e2e tests in addition to GO_TEST_ARGS, applicable to test-e2e, test-extproc, and test-controller.
-GO_TEST_E2E_ARGS ?= -count=1
+GO_TEST_ARGS ?=
+# Arguments for go test in e2e tests in addition to GO_TEST_ARGS, applicable to test-e2e, test-data-plane, etc.
+GO_TEST_E2E_ARGS ?= -count=1 -timeout 30m
 
 ## help: Show this help info.
 .PHONY: help
@@ -46,12 +46,14 @@ help:
 # This runs all necessary steps to prepare for a commit.
 .PHONY: precommit
 precommit: ## Run all necessary steps to prepare for a commit.
-precommit: tidy spellcheck apigen apidoc format lint editorconfig helm-test
+precommit: tidy spellcheck apigen codegen apidoc format lint editorconfig helm-test
 
 .PHONY: lint
-lint: ## This runs the linter, formatter, and tidy on the codebase.
-	@echo "lint => ./..."
+lint: ## This runs the linter on the codebase.
+	@echo "golangci-lint => ./..."
 	@$(GO_TOOL) golangci-lint run --build-tags==test_crdcel,test_controller,test_extproc,test_e2e ./...
+	@echo "actionlint => ./..."
+	@$(GO_TOOL) actionlint -shellcheck="" # Disabling shellcheck as it requires additional host dependencies.
 
 .PHONY: spellcheck
 spellcheck:  ## Spell check the codebase.
@@ -102,7 +104,6 @@ editorconfig:
 apigen: ## Generate CRDs for the API defined in the api directory.
 	@echo "apigen => ./api/v1alpha1/..."
 	@$(GO_TOOL) controller-gen object crd paths="./api/v1alpha1/..." output:dir=./api/v1alpha1 output:crd:dir=./manifests/charts/ai-gateway-crds-helm/templates
-	@$(GO_TOOL) controller-gen object crd paths="./api/v1alpha1/..." output:dir=./api/v1alpha1 output:crd:dir=./manifests/charts/ai-gateway-helm/crds
 
 # This generates the API documentation for the API defined in the api/v1alpha1 directory.
 .PHONY: apidoc
@@ -115,13 +116,43 @@ apidoc: ## Generate API documentation for the API defined in the api directory.
 		--output-path site/docs/api/api.mdx \
 		--renderer=markdown
 
+# This generates typed client, listers, and informers for the API.
+.PHONY: codegen
+codegen: ## Generate typed client, listers, and informers for the API.
+	@echo "codegen => generating kubernetes clients..."
+	@echo "codegen => generating clientset..."
+	@$(GO_TOOL) client-gen \
+		--clientset-name="versioned" \
+		--input-base="" \
+		--input="github.com/envoyproxy/ai-gateway/api/v1alpha1" \
+		--go-header-file=/dev/null \
+		--output-dir="./api/v1alpha1/client/clientset" \
+		--output-pkg="github.com/envoyproxy/ai-gateway/api/v1alpha1/client/clientset" \
+		--plural-exceptions="BackendSecurityPolicy:BackendSecurityPolicies"
+	@echo "codegen => generating listers..."
+	@$(GO_TOOL) lister-gen \
+		--go-header-file=/dev/null \
+		--output-dir="./api/v1alpha1/client/listers" \
+		--output-pkg="github.com/envoyproxy/ai-gateway/api/v1alpha1/client/listers" \
+		--plural-exceptions="BackendSecurityPolicy:BackendSecurityPolicies" \
+		"github.com/envoyproxy/ai-gateway/api/v1alpha1"
+	@echo "codegen => generating informers..."
+	@$(GO_TOOL) informer-gen \
+		--go-header-file=/dev/null \
+		--versioned-clientset-package="github.com/envoyproxy/ai-gateway/api/v1alpha1/client/clientset/versioned" \
+		--listers-package="github.com/envoyproxy/ai-gateway/api/v1alpha1/client/listers" \
+		--output-dir="./api/v1alpha1/client/informers" \
+		--output-pkg="github.com/envoyproxy/ai-gateway/api/v1alpha1/client/informers" \
+		--plural-exceptions="BackendSecurityPolicy:BackendSecurityPolicies" \
+		"github.com/envoyproxy/ai-gateway/api/v1alpha1"
+	@echo "codegen => complete"
 
 ##@ Testing
 
 # This runs the unit tests for the codebase, excluding the integration tests.
 .PHONY: test
 test: ## Run the unit tests for the codebase. This doesn't run the integration tests like test-* targets.
-	@PKGS=$$(go list ./... | grep -v -E "tests/controller|tests/crdcel|/tests/e2e|tests/extproc"); \
+	@PKGS=$$(go list ./... | grep -v -E "tests/controller|tests/crdcel|/tests/e2e|tests/data-plane"); \
 	  echo "Running unit tests for packages: $$PKGS"; \
 	  go test $(GO_TEST_ARGS) $$PKGS
 
@@ -132,31 +163,39 @@ test-coverage: ## Run the unit tests for the codebase with coverage check.
 	@$(MAKE) test GO_TEST_ARGS="-coverprofile=$(OUTPUT_DIR)/go-test-coverage.out -covermode=atomic -coverpkg=github.com/envoyproxy/ai-gateway/... -count=1 $(GO_TEST_ARGS)"
 	@$(GO_TOOL) go-test-coverage --config=.testcoverage.yml
 
-ENVTEST_K8S_VERSIONS ?= 1.31.0 1.32.0 1.33.0
-
 # This runs the integration tests of CEL validation rules in CRD definitions.
 #
 # This requires the EnvTest binary to be built.
 .PHONY: test-crdcel
 test-crdcel: apigen ## Run the integration tests of CEL validation in CRD definitions with envtest.
-	@for k8sVersion in $(ENVTEST_K8S_VERSIONS); do \
-  		echo "Run CEL Validation on k8s $$k8sVersion"; \
-        ENVTEST_K8S_VERSION=$$k8sVersion go test ./tests/crdcel/... $(GO_TEST_ARGS) $(GO_TEST_E2E_ARGS); \
-    done
+	echo "Run CEL Validation"
+	@go test ./tests/crdcel/... $(GO_TEST_ARGS) $(GO_TEST_E2E_ARGS)
 
-# This runs the end-to-end tests for extproc without controller or k8s at all.
-# It is useful for the fast iteration of the extproc code.
-#
-# This requires the extproc binary to be built as well as Envoy binary to be available in the PATH.
-# The EXTPROC_BIN environment variable is exported to tell tests to use the pre-built binary.
+# This runs the end-to-end tests for data plane without controller or k8s at all.
+# It is useful for the fast iteration of the data plane code.
 #
 # Since this is an integration test, we don't use -race, as it takes a very long
 # time to complete. For concurrency issues, use normal unit tests and race them.
-.PHONY: test-extproc # This requires the extproc binary to be built.
-test-extproc: build.extproc ## Run the integration tests for extproc without controller or k8s at all.
+.PHONY: test-data-plane
+test-data-plane: build.extproc ## Run the integration tests for data plane without controller or k8s at all.
 	@$(MAKE) build.testupstream CMD_PATH_PREFIX=tests/internal/testupstreamlib
-	@echo "Run ExtProc test"
-	@EXTPROC_BIN=$(OUTPUT_DIR)/extproc-$(shell go env GOOS)-$(shell go env GOARCH) go test ./tests/extproc/... $(GO_TEST_E2E_ARGS)
+	@echo "Ensure func-e is built and Envoy is installed"
+	@@$(GO_TOOL) func-e run --version >/dev/null 2>&1
+	@echo "Run Data Plane test"
+	@go test ./tests/data-plane/...  -bench=. -benchtime=1x $(GO_TEST_E2E_ARGS) # Run the benchmark test case once for additional coverage.
+
+# This runs the end-to-end tests for MCP without controller or k8s at all.
+# It is useful for the fast iteration of the data plane MCP code.
+#
+# Since this is an integration test, we don't use -race, as it takes a very long
+# time to complete. For concurrency issues, use normal unit tests and race them.
+.PHONY: test-data-plane-mcp
+test-data-plane-mcp: build.extproc ## Run the integration tests for MCP data plane without controller or k8s at all.
+	@$(MAKE) build.testupstream CMD_PATH_PREFIX=tests/internal/testupstreamlib
+	@echo "Ensure func-e is built and Envoy is installed"
+	@@$(GO_TOOL) func-e run --version >/dev/null 2>&1
+	@echo "Run Data Plane MCP test"
+	@go test ./tests/data-plane-mcp/... $(GO_TEST_E2E_ARGS)
 
 # This runs the end-to-end tests for the controller with EnvTest.
 #
@@ -164,10 +203,8 @@ test-extproc: build.extproc ## Run the integration tests for extproc without con
 # time to complete. For concurrency issues, use normal unit tests and race them.
 .PHONY: test-controller
 test-controller: apigen ## Run the integration tests for the controller with envtest.
-	@for k8sVersion in $(ENVTEST_K8S_VERSIONS); do \
-  		echo "Run Controller tests on k8s $$k8sVersion"; \
-        ENVTEST_K8S_VERSION=$$k8sVersion go test ./tests/controller/... $(GO_TEST_ARGS) $(GO_TEST_E2E_ARGS); \
-    done
+	echo "Run Controller tests on k8s"
+	@go test ./tests/controller/... $(GO_TEST_ARGS) $(GO_TEST_E2E_ARGS);
 
 # This runs the end-to-end tests for the controller and extproc with a local kind cluster.
 .PHONY: test-e2e
@@ -183,13 +220,13 @@ test-e2e-inference-extension: build-e2e ## Run the end-to-end tests with a local
 
 # This runs the end-to-end upgrade tests for the controller and extproc with a local kind cluster.
 .PHONY: test-e2e-upgrade
-test-e2e-upgrade: build-e2e
+test-e2e-upgrade: build-e2e ## Run the end-to-end upgrade tests with a local kind cluster.
 	@echo "Run E2E upgrade tests"
 	@go test -v ./tests/e2e-upgrade/... $(GO_TEST_ARGS) $(GO_TEST_E2E_ARGS)
 
 # This runs the end-to-end namespaced tests for the controller and extproc with a local kind cluster.
 .PHONY: test-e2e-namespaced
-test-e2e-namespaced: build-e2e
+test-e2e-namespaced: build-e2e ## Run the end-to-end namespaced tests with a local kind cluster.
 	@echo "Run E2E namespaced tests"
 	@go test -v ./tests/e2e-namespaced/... $(GO_TEST_ARGS) $(GO_TEST_E2E_ARGS)
 
@@ -197,7 +234,7 @@ test-e2e-namespaced: build-e2e
 .PHONY: test-e2e-aigw
 test-e2e-aigw: build.aigw ## Run the end-to-end tests for the aigw CLI.
 	@echo "Run aigw CLI E2E tests"
-	@go test -v ./tests/e2e-aigw/... -timeout 30m $(GO_TEST_E2E_ARGS)
+	@go test -v ./tests/e2e-aigw/... $(GO_TEST_E2E_ARGS)
 
 ##@ Common
 
@@ -243,6 +280,7 @@ build-e2e: ## Build the docker images for the controller, extproc and testupstre
 	@$(MAKE) docker-build DOCKER_BUILD_ARGS="--load"
 	@$(MAKE) docker-build.testupstream CMD_PATH_PREFIX=tests/internal/testupstreamlib DOCKER_BUILD_ARGS="--load"
 	@$(MAKE) docker-build.testmcpserver CMD_PATH_PREFIX=tests/internal/testmcp DOCKER_BUILD_ARGS="--load"
+	@$(MAKE) docker-build.testextauthserver CMD_PATH_PREFIX=tests/internal/testextauth DOCKER_BUILD_ARGS="--load"
 
 # This builds a docker image for a given command.
 #

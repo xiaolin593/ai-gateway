@@ -39,7 +39,7 @@ func TestMCPRouteAPIKeyAuth(t *testing.T) {
 	const manifest = "testdata/mcp_route_api_key_auth.yaml"
 	require.NoError(t, e2elib.KubectlApplyManifest(t.Context(), manifest))
 	t.Cleanup(func() {
-		_ = e2elib.KubectlDeleteManifest(t.Context(), manifest)
+		_ = e2elib.KubectlDeleteManifest(context.Background(), manifest)
 	})
 
 	const egSelector = "gateway.envoyproxy.io/owning-gateway-name=mcp-gateway-api-key"
@@ -83,8 +83,8 @@ func TestMCPRouteAPIKeyAuth(t *testing.T) {
 					Endpoint: fmt.Sprintf("%s/mcp", fwd.Address()),
 				}, nil)
 			if err != nil {
-				if strings.Contains(err.Error(), "401 Unauthorized") {
-					t.Logf("got expected 401 Unauthorized error: %v", err)
+				if strings.Contains(err.Error(), "Unauthorized") {
+					t.Logf("got expected Unauthorized error: %v", err)
 					return true
 				}
 				t.Logf("failed to connect to MCP server: %v", err)
@@ -118,8 +118,8 @@ func TestMCPRouteAPIKeyAuth(t *testing.T) {
 					HTTPClient: invalidClient,
 				}, nil)
 			if err != nil {
-				if strings.Contains(err.Error(), "401 Unauthorized") {
-					t.Logf("got expected 401 Unauthorized error: %v", err)
+				if strings.Contains(err.Error(), "Unauthorized") {
+					t.Logf("got expected Unauthorized error: %v", err)
 					return true
 				}
 				t.Logf("failed to connect to MCP server: %v", err)

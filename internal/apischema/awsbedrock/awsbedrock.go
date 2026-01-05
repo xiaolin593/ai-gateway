@@ -98,7 +98,11 @@ type SystemContentBlock struct {
 	GuardContent *GuardrailConverseContentBlock `json:"guardContent,omitempty"`
 
 	// A system prompt for the model.
-	Text string `json:"text"`
+	Text *string `json:"text,omitempty"`
+
+	// Cache point for prompt caching. Enables caching of preceding content.
+	// See https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html for more information.
+	CachePoint *CachePointBlock `json:"cachePoint,omitempty"`
 }
 
 // GuardrailConfiguration Configuration information for a guardrail that you use with the Converse
@@ -350,6 +354,10 @@ type ContentBlock struct {
 	// Required: No
 	// See https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ReasoningContentBlock.html for more information.
 	ReasoningContent *ReasoningContentBlock `json:"reasoningContent,omitempty"`
+
+	// Cache point for prompt caching. Enables caching of preceding content.
+	// See https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html for more information.
+	CachePoint *CachePointBlock `json:"cachePoint,omitempty"`
 }
 
 // ConverseMetrics Metrics for a call to Converse (https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html).
@@ -403,9 +411,44 @@ type TokenUsage struct {
 	CacheWriteInputTokens *int `json:"cacheWriteInputTokens,omitempty"`
 }
 
+// ConverseStreamEventType represents a distinct event type received from the Bedrock ConverseStream API.
+// Using a string type provides a clear, human-readable value, which is often helpful
+// when logging or debugging stream events.
+type ConverseStreamEventType string
+
+const (
+	// ConverseStreamEventTypeUnknown is the zero value and represents an uninitialized or unknown event type.
+	// This is a Go best practice to ensure the zero value is not a valid constant.
+	ConverseStreamEventTypeUnknown ConverseStreamEventType = ""
+
+	// ConverseStreamEventTypeMessageStart signals the start of the assistant's message.
+	ConverseStreamEventTypeMessageStart ConverseStreamEventType = "messageStart"
+
+	// ConverseStreamEventTypeContentBlockStart signals the start of a content block within the message (e.g., text or tool use).
+	ConverseStreamEventTypeContentBlockStart ConverseStreamEventType = "contentBlockStart"
+
+	// ConverseStreamEventTypeContentBlockDelta contains a chunk of content (e.g., text or tool input).
+	ConverseStreamEventTypeContentBlockDelta ConverseStreamEventType = "contentBlockDelta"
+
+	// ConverseStreamEventTypeContentBlockStop signals the end of a content block.
+	ConverseStreamEventTypeContentBlockStop ConverseStreamEventType = "contentBlockStop"
+
+	// ConverseStreamEventTypeMessageStop signals the end of the entire message.
+	ConverseStreamEventTypeMessageStop ConverseStreamEventType = "messageStop"
+
+	// ConverseStreamEventTypeMetadata contains usage and latency information.
+	ConverseStreamEventTypeMetadata ConverseStreamEventType = "metadata"
+)
+
+// String implements the fmt.Stringer interface for better logging/printing.
+func (c ConverseStreamEventType) String() string {
+	return string(c)
+}
+
 // ConverseStreamEvent is the union of all possible event types in the AWS Bedrock API:
 // https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ConverseStream.html
 type ConverseStreamEvent struct {
+	EventType         string                                `json:"eventType"`
 	ContentBlockIndex int                                   `json:"contentBlockIndex,omitempty"`
 	Delta             *ConverseStreamEventContentBlockDelta `json:"delta,omitempty"`
 	Role              *string                               `json:"role,omitempty"`
@@ -507,6 +550,10 @@ type ToolConfiguration struct {
 type Tool struct {
 	// The specification for the tool.
 	ToolSpec *ToolSpecification `json:"toolSpec"`
+
+	// Cache point for prompt caching. Enables caching of preceding content.
+	// See https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html for more information.
+	CachePoint *CachePointBlock `json:"cachePoint,omitempty"`
 }
 
 // ToolInputSchema The schema for the tool. The top level schema type must be an object.
@@ -528,4 +575,12 @@ type ToolSpecification struct {
 	//
 	// Name is a required field.
 	Name *string `json:"name"`
+}
+
+// CachePointBlock defines a cache checkpoint for prompt caching.
+// This allows AWS Bedrock models to cache content up to this point for reuse in subsequent requests.
+// See https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html for more information.
+type CachePointBlock struct {
+	// The type of cache point. Currently only "default" is supported.
+	Type string `json:"type"`
 }

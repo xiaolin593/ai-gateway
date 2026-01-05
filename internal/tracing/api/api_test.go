@@ -8,15 +8,15 @@ package api
 import (
 	"testing"
 
-	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 )
 
 func TestNoopTracing(t *testing.T) {
 	tracing := NoopTracing{}
-	require.Equal(t, NoopChatCompletionTracer{}, tracing.ChatCompletionTracer())
+	require.IsType(t, NoopTracer[openai.ChatCompletionRequest, openai.ChatCompletionResponse, openai.ChatCompletionResponseChunk]{}, tracing.ChatCompletionTracer())
 	require.Equal(t, NoopMCPTracer{}, tracing.MCPTracer())
 
 	// Calling shutdown twice should not cause an error.
@@ -24,11 +24,11 @@ func TestNoopTracing(t *testing.T) {
 	require.NoError(t, tracing.Shutdown(t.Context()))
 }
 
-func TestNoopChatCompletionTracer(t *testing.T) {
-	tracer := NoopChatCompletionTracer{}
+func TestNoopTracerChatCompletion(t *testing.T) {
+	tracer := NoopTracer[openai.ChatCompletionRequest, openai.ChatCompletionResponse, openai.ChatCompletionResponseChunk]{}
 
 	readHeaders := map[string]string{}
-	writeHeaders := &extprocv3.HeaderMutation{}
+	writeHeaders := propagation.MapCarrier{}
 	req := &openai.ChatCompletionRequest{}
 	reqBody := []byte{'{', '}'}
 
@@ -47,7 +47,7 @@ func TestNoopChatCompletionTracer(t *testing.T) {
 
 	// no side effects
 	require.Equal(t, map[string]string{}, readHeaders)
-	require.Equal(t, &extprocv3.HeaderMutation{}, writeHeaders)
+	require.Equal(t, propagation.MapCarrier{}, writeHeaders)
 	require.Equal(t, &openai.ChatCompletionRequest{}, req)
 	require.Equal(t, []byte{'{', '}'}, reqBody)
 }

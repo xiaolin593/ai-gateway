@@ -6,19 +6,19 @@
 package openai
 
 import (
-	"encoding/json"
-
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
+	"github.com/envoyproxy/ai-gateway/internal/json"
 	tracing "github.com/envoyproxy/ai-gateway/internal/tracing/api"
 	"github.com/envoyproxy/ai-gateway/internal/tracing/openinference"
 )
 
 // EmbeddingsRecorder implements recorders for OpenInference embeddings spans.
 type EmbeddingsRecorder struct {
+	tracing.NoopChunkRecorder[struct{}]
 	traceConfig *openinference.TraceConfig
 }
 
@@ -60,7 +60,7 @@ func (r *EmbeddingsRecorder) RecordRequest(span trace.Span, embReq *openai.Embed
 
 // RecordResponseOnError implements the same method as defined in tracing.EmbeddingsRecorder.
 func (r *EmbeddingsRecorder) RecordResponseOnError(span trace.Span, statusCode int, body []byte) {
-	recordResponseError(span, statusCode, string(body))
+	openinference.RecordResponseError(span, statusCode, string(body))
 }
 
 // RecordResponse implements the same method as defined in tracing.EmbeddingsRecorder.

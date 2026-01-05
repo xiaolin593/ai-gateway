@@ -6,13 +6,12 @@
 package openai
 
 import (
-	"encoding/json"
-
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
+	"github.com/envoyproxy/ai-gateway/internal/json"
 	tracing "github.com/envoyproxy/ai-gateway/internal/tracing/api"
 	"github.com/envoyproxy/ai-gateway/internal/tracing/openinference"
 )
@@ -60,7 +59,7 @@ func (r *CompletionRecorder) RecordRequest(span trace.Span, req *openai.Completi
 
 // RecordResponseOnError implements the same method as defined in tracing.CompletionRecorder.
 func (r *CompletionRecorder) RecordResponseOnError(span trace.Span, statusCode int, body []byte) {
-	recordResponseError(span, statusCode, string(body))
+	openinference.RecordResponseError(span, statusCode, string(body))
 }
 
 // RecordResponseChunks implements the same method as defined in tracing.CompletionRecorder.

@@ -4,6 +4,9 @@ title: HTTPRoute + InferencePool Guide
 sidebar_position: 2
 ---
 
+import CodeBlock from '@theme/CodeBlock';
+import vars from '../../\_vars.json';
+
 # HTTPRoute + InferencePool Guide
 
 This guide shows how to use InferencePool with the standard Gateway API HTTPRoute for intelligent inference routing. This approach provides basic load balancing and endpoint selection capabilities for inference workloads.
@@ -27,15 +30,19 @@ kubectl apply -f https://github.com/kubernetes-sigs/gateway-api-inference-extens
 
 After installing InferencePool CRD, enable InferencePool support in Envoy Gateway, restart the deployment, and wait for it to be ready:
 
-```shell
-kubectl apply -f https://raw.githubusercontent.com/envoyproxy/ai-gateway/main/examples/inference-pool/config.yaml
+<CodeBlock language="shell">
+{`kubectl apply -f https://raw.githubusercontent.com/envoyproxy/ai-gateway/${vars.aigwGitRef}/examples/inference-pool/config.yaml
 
 kubectl rollout restart -n envoy-gateway-system deployment/envoy-gateway
 
-kubectl wait --timeout=2m -n envoy-gateway-system deployment/envoy-gateway --for=condition=Available
-```
+kubectl wait --timeout=2m -n envoy-gateway-system deployment/envoy-gateway --for=condition=Available`}
+</CodeBlock>
 
-## Step 2: Deploy Inference Backend
+## Step 2: Ensure Envoy Gateway is configured for InferencePool
+
+See [Envoy Gateway Installation Guide](../../getting-started/prerequisites.md#additional-features-rate-limiting-inferencepool-etc)
+
+## Step 3: Deploy Inference Backend
 
 Deploy a sample inference backend that will serve as your inference endpoints:
 
@@ -47,7 +54,7 @@ This creates a simulated vLLM deployment with multiple replicas that can handle 
 
 > **Note**: This deployment creates the `vllm-llama3-8b-instruct` InferencePool and related resources that are referenced in the HTTPRoute configuration below.
 
-## Step 3: Create InferenceObjective
+## Step 4: Create InferenceObjective
 
 Create an InferenceObjective resource to define the model configuration:
 
@@ -55,7 +62,7 @@ Create an InferenceObjective resource to define the model configuration:
 kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/gateway-api-inference-extension/refs/tags/v1.0.1/config/manifests/inferenceobjective.yaml
 ```
 
-## Step 4: Create InferencePool Resources
+## Step 5: Create InferencePool Resources
 
 Deploy the InferencePool and related resources:
 
@@ -70,7 +77,7 @@ This creates:
 - Associated services and configurations
 - RBAC permissions for accessing InferencePool and Pod resources
 
-## Step 5: Configure Gateway and HTTPRoute
+## Step 6: Configure Gateway and HTTPRoute
 
 Create a Gateway and HTTPRoute that uses the InferencePool:
 
@@ -123,7 +130,7 @@ spec:
 EOF
 ```
 
-## Step 6: Test the Configuration
+## Step 7: Test the Configuration
 
 Once deployed, you can test the inference routing:
 

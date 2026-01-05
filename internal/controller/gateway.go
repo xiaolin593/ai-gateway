@@ -10,8 +10,10 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
+	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	appsv1 "k8s.io/api/apps/v1"
@@ -31,6 +33,7 @@ import (
 	"github.com/envoyproxy/ai-gateway/internal/filterapi"
 	"github.com/envoyproxy/ai-gateway/internal/internalapi"
 	"github.com/envoyproxy/ai-gateway/internal/llmcostcel"
+	"github.com/envoyproxy/ai-gateway/internal/version"
 )
 
 const (
@@ -149,12 +152,22 @@ func (c *GatewayController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 // schemaToFilterAPI converts an aigv1a1.VersionedAPISchema to filterapi.VersionedAPISchema.
-func schemaToFilterAPI(schema aigv1a1.VersionedAPISchema) filterapi.VersionedAPISchema {
+func schemaToFilterAPI(schema aigv1a1.VersionedAPISchema, l logr.Logger) filterapi.VersionedAPISchema {
 	ret := filterapi.VersionedAPISchema{}
 	ret.Name = filterapi.APISchemaName(schema.Name)
 	if schema.Name == aigv1a1.APISchemaOpenAI {
-		// When the schema is OpenAI, we default to the v1 version if not specified or nil.
-		ret.Version = cmp.Or(ptr.Deref(schema.Version, "v1"), "v1")
+		if schema.Prefix != nil {
+			ret.Prefix = *schema.Prefix
+		} else {
+			// We default to the v1 version if not specified or nil for the legacy use of "version" field.
+			// TODO: This is to maintain backward compatibility, delete this in future releases.
+			ret.Prefix = cmp.Or(ptr.Deref(schema.Version, "v1"), "v1")
+			l.Info("Warning: 'prefix' field is not set for OpenAI schema, using 'version' field as prefix for backward compatibility. " +
+				"Please set 'prefix' field explicitly as this use of 'version' field will be removed in future releases.",
+			)
+		}
+		// This is for backward compatibility. TODO: remove this after v0.5.0 release.
+		ret.Version = ret.Prefix
 	} else {
 		ret.Version = ptr.Deref(schema.Version, "")
 	}
@@ -167,11 +180,122 @@ func headerMutationToFilterAPI(m *aigv1a1.HTTPHeaderMutation) *filterapi.HTTPHea
 		return nil
 	}
 	ret := &filterapi.HTTPHeaderMutation{}
-	ret.Remove = append(ret.Remove, m.Remove...)
+	ret.Remove = make([]string, 0, len(m.Remove))
+	for _, h := range m.Remove {
+		ret.Remove = append(ret.Remove, strings.ToLower(h))
+	}
 	for _, h := range m.Set {
-		ret.Set = append(ret.Set, filterapi.HTTPHeader{Name: string(h.Name), Value: h.Value})
+		ret.Set = append(ret.Set, filterapi.HTTPHeader{Name: strings.ToLower(string(h.Name)), Value: h.Value})
 	}
 	return ret
+}
+
+// bodyMutationToFilterAPI converts an aigv1a1.HTTPBodyMutation to filterapi.HTTPBodyMutation.
+func bodyMutationToFilterAPI(m *aigv1a1.HTTPBodyMutation) *filterapi.HTTPBodyMutation {
+	if m == nil {
+		return nil
+	}
+	ret := &filterapi.HTTPBodyMutation{}
+	ret.Remove = make([]string, 0, len(m.Remove))
+	ret.Remove = append(ret.Remove, m.Remove...)
+	for _, field := range m.Set {
+		ret.Set = append(ret.Set, filterapi.HTTPBodyField{Path: field.Path, Value: field.Value})
+	}
+	return ret
+}
+
+// mergeBodyMutations merges route-level and backend-level BodyMutation with route-level taking precedence.
+// Returns the merged BodyMutation where route-level operations override backend-level operations for conflicting body fields.
+func mergeBodyMutations(routeLevel, backendLevel *aigv1a1.HTTPBodyMutation) *aigv1a1.HTTPBodyMutation {
+	if routeLevel == nil {
+		return backendLevel
+	}
+	if backendLevel == nil {
+		return routeLevel
+	}
+
+	result := &aigv1a1.HTTPBodyMutation{}
+
+	// Merge Set operations (route-level wins conflicts)
+	fieldMap := make(map[string]aigv1a1.HTTPBodyField)
+
+	// Add backend-level fields first
+	for _, f := range backendLevel.Set {
+		fieldMap[f.Path] = f
+	}
+
+	// Override with route-level fields (route-level wins)
+	for _, f := range routeLevel.Set {
+		fieldMap[f.Path] = f
+	}
+
+	// Convert back to slice
+	for _, f := range fieldMap {
+		result.Set = append(result.Set, f)
+	}
+
+	// Merge Remove operations (combine and deduplicate)
+	removeMap := make(map[string]struct{})
+
+	for _, f := range backendLevel.Remove {
+		removeMap[f] = struct{}{}
+	}
+	for _, f := range routeLevel.Remove {
+		removeMap[f] = struct{}{}
+	}
+
+	for f := range removeMap {
+		result.Remove = append(result.Remove, f)
+	}
+
+	return result
+}
+
+// mergeHeaderMutations merges route-level and backend-level HeaderMutation with route-level taking precedence.
+// Returns the merged HeaderMutation where route-level operations override backend-level operations for conflicting headers.
+func mergeHeaderMutations(routeLevel, backendLevel *aigv1a1.HTTPHeaderMutation) *aigv1a1.HTTPHeaderMutation {
+	if routeLevel == nil {
+		return backendLevel
+	}
+	if backendLevel == nil {
+		return routeLevel
+	}
+
+	result := &aigv1a1.HTTPHeaderMutation{}
+
+	// Merge Set operations (route-level wins conflicts)
+	headerMap := make(map[string]gwapiv1.HTTPHeader)
+
+	// Add backend-level headers first
+	for _, h := range backendLevel.Set {
+		headerMap[strings.ToLower(string(h.Name))] = h
+	}
+
+	// Override with route-level headers (route-level wins)
+	for _, h := range routeLevel.Set {
+		headerMap[strings.ToLower(string(h.Name))] = h
+	}
+
+	// Convert back to slice
+	for _, h := range headerMap {
+		result.Set = append(result.Set, h)
+	}
+
+	// Merge Remove operations (combine and deduplicate)
+	removeMap := make(map[string]struct{})
+
+	for _, h := range backendLevel.Remove {
+		removeMap[strings.ToLower(h)] = struct{}{}
+	}
+	for _, h := range routeLevel.Remove {
+		removeMap[strings.ToLower(h)] = struct{}{}
+	}
+
+	for h := range removeMap {
+		result.Remove = append(result.Remove, h)
+	}
+
+	return result
 }
 
 // reconcileFilterConfigSecret updates the filter config secret for the external processor.
@@ -184,10 +308,7 @@ func (c *GatewayController) reconcileFilterConfigSecret(
 	uuid string,
 ) error {
 	// Precondition: aiGatewayRoutes is not empty as we early return if it is empty.
-	ec := &filterapi.Config{UUID: uuid}
-	// TODO: Drop this after v0.4.0.
-	ec.ModelNameHeaderKey = internalapi.ModelNameHeaderKeyDefault
-	ec.MetadataNamespace = aigv1a1.AIGatewayFilterMetadataNamespace
+	ec := &filterapi.Config{UUID: uuid, Version: version.Parse()}
 	var err error
 	llmCosts := map[string]struct{}{}
 	for i := range aiGatewayRoutes {
@@ -222,7 +343,11 @@ func (c *GatewayController) reconcileFilterConfigSecret(
 				b.ModelNameOverride = backendRef.ModelNameOverride
 				if backendRef.IsInferencePool() {
 					// We assume that InferencePools are all OpenAI schema.
-					b.Schema = filterapi.VersionedAPISchema{Name: filterapi.APISchemaOpenAI, Version: "v1"}
+					b.Schema = filterapi.VersionedAPISchema{
+						Name: filterapi.APISchemaOpenAI,
+						// This is for backward compatibility. TODO: Remove the 'version' field usage after v0.5.0 release.
+						Version: "v1", Prefix: "v1",
+					}
 				} else {
 					var backendObj *aigv1a1.AIServiceBackend
 					var bsp *aigv1a1.BackendSecurityPolicy
@@ -234,8 +359,24 @@ func (c *GatewayController) reconcileFilterConfigSecret(
 							"namespace", backendNamespace)
 						continue
 					}
-					b.HeaderMutation = headerMutationToFilterAPI(backendObj.Spec.HeaderMutation)
-					b.Schema = schemaToFilterAPI(backendObj.Spec.APISchema)
+
+					// Extract HeaderMutation from both route and backend levels
+					routeHeaderMutation := backendRef.HeaderMutation
+					backendHeaderMutation := backendObj.Spec.HeaderMutation
+
+					// Merge with route-level taking precedence over backend-level
+					mergedHeaderMutation := mergeHeaderMutations(routeHeaderMutation, backendHeaderMutation)
+
+					// Convert to FilterAPI format
+					b.HeaderMutation = headerMutationToFilterAPI(mergedHeaderMutation)
+
+					routeBodyMutation := backendRef.BodyMutation
+					backendBodyMutation := backendObj.Spec.BodyMutation
+					// Merge with route-level taking precedence over backend-level
+					mergedBodyMutation := mergeBodyMutations(routeBodyMutation, backendBodyMutation)
+					b.BodyMutation = bodyMutationToFilterAPI(mergedBodyMutation)
+
+					b.Schema = schemaToFilterAPI(backendObj.Spec.APISchema, c.logger)
 					if bsp != nil {
 						b.Auth, err = c.bspToFilterAPIBackendAuth(ctx, bsp)
 						if err != nil {
@@ -263,6 +404,8 @@ func (c *GatewayController) reconcileFilterConfigSecret(
 					fc.Type = filterapi.LLMRequestCostTypeInputToken
 				case aigv1a1.LLMRequestCostTypeCachedInputToken:
 					fc.Type = filterapi.LLMRequestCostTypeCachedInputToken
+				case aigv1a1.LLMRequestCostTypeCacheCreationInputToken:
+					fc.Type = filterapi.LLMRequestCostTypeCacheCreationInputToken
 				case aigv1a1.LLMRequestCostTypeOutputToken:
 					fc.Type = filterapi.LLMRequestCostTypeOutputToken
 				case aigv1a1.LLMRequestCostTypeTotalToken:
@@ -346,6 +489,66 @@ func mcpConfig(mcpRoutes []aigv1a1.MCPRoute) *filterapi.MCPConfig {
 			mcpRoute.Backends = append(
 				mcpRoute.Backends, mcpBackend)
 		}
+		// Add authorization configuration for the route.
+		if route.Spec.SecurityPolicy != nil && route.Spec.SecurityPolicy.Authorization != nil {
+			authorization := route.Spec.SecurityPolicy.Authorization
+			mcpRoute.Authorization = &filterapi.MCPRouteAuthorization{}
+
+			if route.Spec.SecurityPolicy.OAuth != nil {
+				mcpRoute.Authorization.ResourceMetadataURL = buildResourceMetadataURL(&route.Spec.SecurityPolicy.OAuth.ProtectedResourceMetadata)
+			}
+
+			defaultAction := ptr.Deref(authorization.DefaultAction, egv1a1.AuthorizationActionDeny)
+			mcpRoute.Authorization.DefaultAction = filterapi.AuthorizationAction(defaultAction)
+
+			for _, rule := range authorization.Rules {
+				action := ptr.Deref(rule.Action, egv1a1.AuthorizationActionAllow)
+				if mcpRoute.Authorization.Rules == nil {
+					mcpRoute.Authorization.Rules = []filterapi.MCPRouteAuthorizationRule{}
+				}
+
+				mcpRule := filterapi.MCPRouteAuthorizationRule{
+					Action: filterapi.AuthorizationAction(action),
+					CEL:    rule.CEL,
+				}
+
+				if rule.Source != nil {
+					scopes := make([]string, len(rule.Source.JWT.Scopes))
+					for i, scope := range rule.Source.JWT.Scopes {
+						scopes[i] = string(scope)
+					}
+					claims := make([]filterapi.JWTClaim, len(rule.Source.JWT.Claims))
+					for i, claim := range rule.Source.JWT.Claims {
+						claims[i] = filterapi.JWTClaim{
+							Name:      claim.Name,
+							ValueType: filterapi.JWTClaimValueType(ptr.Deref(claim.ValueType, egv1a1.JWTClaimValueTypeString)),
+							Values:    append([]string(nil), claim.Values...),
+						}
+					}
+					mcpRule.Source = &filterapi.MCPAuthorizationSource{
+						JWT: filterapi.JWTSource{
+							Scopes: scopes,
+							Claims: claims,
+						},
+					}
+				}
+
+				if rule.Target != nil {
+					tools := make([]filterapi.ToolCall, len(rule.Target.Tools))
+					for i, tool := range rule.Target.Tools {
+						tools[i] = filterapi.ToolCall{
+							Backend: tool.Backend,
+							Tool:    tool.Tool,
+						}
+					}
+					mcpRule.Target = &filterapi.MCPAuthorizationTarget{
+						Tools: tools,
+					}
+				}
+
+				mcpRoute.Authorization.Rules = append(mcpRoute.Authorization.Rules, mcpRule)
+			}
+		}
 		mc.Routes = append(mc.Routes, mcpRoute)
 	}
 	return mc
@@ -376,8 +579,21 @@ func (c *GatewayController) bspToFilterAPIBackendAuth(ctx context.Context, backe
 		}
 		return &filterapi.BackendAuth{AnthropicAPIKey: &filterapi.AnthropicAPIKeyAuth{Key: apiKey}}, nil
 	case aigv1a1.BackendSecurityPolicyTypeAWSCredentials:
+		awsCred := backendSecurityPolicy.Spec.AWSCredentials
+
+		// If no credentials file or OIDC token is configured, use default credential chain
+		// This allows IRSA/Pod Identity to work automatically
+		if awsCred.CredentialsFile == nil && awsCred.OIDCExchangeToken == nil {
+			return &filterapi.BackendAuth{
+				AWSAuth: &filterapi.AWSAuth{
+					Region: awsCred.Region,
+				},
+			}, nil
+		}
+
+		// Otherwise, fetch credentials from secret
 		var secretName string
-		if awsCred := backendSecurityPolicy.Spec.AWSCredentials; awsCred.CredentialsFile != nil {
+		if awsCred.CredentialsFile != nil {
 			secretName = string(awsCred.CredentialsFile.SecretRef.Name)
 		} else {
 			secretName = rotators.GetBSPSecretName(backendSecurityPolicy.Name)
@@ -389,7 +605,7 @@ func (c *GatewayController) bspToFilterAPIBackendAuth(ctx context.Context, backe
 		return &filterapi.BackendAuth{
 			AWSAuth: &filterapi.AWSAuth{
 				CredentialFileLiteral: credentialsLiteral,
-				Region:                backendSecurityPolicy.Spec.AWSCredentials.Region,
+				Region:                awsCred.Region,
 			},
 		}, nil
 	case aigv1a1.BackendSecurityPolicyTypeAzureCredentials:

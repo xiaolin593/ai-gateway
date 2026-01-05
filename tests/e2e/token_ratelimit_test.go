@@ -6,8 +6,8 @@
 package e2e
 
 import (
+	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
 
+	"github.com/envoyproxy/ai-gateway/internal/json"
 	"github.com/envoyproxy/ai-gateway/tests/internal/e2elib"
 	"github.com/envoyproxy/ai-gateway/tests/internal/testupstreamlib"
 )
@@ -35,16 +36,28 @@ const userIDAttribute = "user.id"
 const userIDMetricsLabel = "user_id"
 
 func Test_Examples_TokenRateLimit(t *testing.T) {
-	const manifest = "../../examples/token_ratelimit/"
-	require.NoError(t, e2elib.KubectlApplyManifest(t.Context(), manifest))
+	const manifestDir = "../../examples/token_ratelimit"
+	// Apply specific manifest files, not the entire directory (to avoid applying Helm values files)
+	manifests := []string{
+		manifestDir + "/redis.yaml",
+		manifestDir + "/token_ratelimit.yaml",
+	}
+	for _, manifest := range manifests {
+		require.NoError(t, e2elib.KubectlApplyManifest(t.Context(), manifest))
+	}
 	t.Cleanup(func() {
-		_ = e2elib.KubectlDeleteManifest(t.Context(), manifest)
+		for _, manifest := range manifests {
+			_ = e2elib.KubectlDeleteManifest(context.Background(), manifest)
+		}
 	})
 
 	const egSelector = "gateway.envoyproxy.io/owning-gateway-name=envoy-ai-gateway-token-ratelimit"
 	e2elib.RequireWaitForGatewayPodReady(t, egSelector)
 
 	// Wait for the redis pod to be ready so that the rate limit can be performed correctly.
+	// Until the redis pod is ready, envoy-ratelimit deployment will be in CrashLoopBackOff, so restart it so
+	// we can have it up and running faster in a clean state.
+	require.NoError(t, e2elib.KubectlRestartDeployment(t.Context(), e2elib.EnvoyGatewayNamespace, "envoy-ratelimit"))
 	e2elib.RequireWaitForPodReady(t, e2elib.EnvoyGatewayNamespace, "app.kubernetes.io/component=ratelimit")
 	e2elib.RequireWaitForPodReady(t, "redis-system", "app=redis")
 
@@ -142,7 +155,7 @@ func Test_Examples_TokenRateLimit(t *testing.T) {
 		defer fwd.Kill()
 		// notice all labels are snake_case in Prometheus even though the otel inputs are dotted.
 		query := fmt.Sprintf(
-			`sum(gen_ai_client_token_usage_token_sum{gateway_envoyproxy_io_owning_gateway_name = "envoy-ai-gateway-token-ratelimit"}) by (gen_ai_request_model, gen_ai_token_type, %s)`,
+			`sum(gen_ai_client_token_usage_sum{gateway_envoyproxy_io_owning_gateway_name = "envoy-ai-gateway-token-ratelimit"}) by (gen_ai_request_model, gen_ai_token_type, %s)`,
 			userIDMetricsLabel)
 		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/query?query=%s", fwd.Address(), url.QueryEscape(query)), nil)
 		require.NoError(t, err)

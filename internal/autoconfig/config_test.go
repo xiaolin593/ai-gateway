@@ -66,6 +66,9 @@ var (
 
 	//go:embed testdata/openai-github.yaml
 	openaiGithubYAML string
+
+	//go:embed testdata/anthropic.yaml
+	anthropicYAML string
 )
 
 func TestWriteConfig(t *testing.T) {
@@ -79,11 +82,10 @@ func TestWriteConfig(t *testing.T) {
 			input: ConfigData{
 				Backends: []Backend{
 					{
-						Name:             "openai",
-						Hostname:         "api.openai.com",
-						OriginalHostname: "api.openai.com",
-						Port:             443,
-						NeedsTLS:         true,
+						Name:     "openai",
+						Hostname: "api.openai.com",
+						Port:     443,
+						NeedsTLS: true,
 					},
 				},
 				OpenAI: &OpenAIConfig{
@@ -99,11 +101,10 @@ func TestWriteConfig(t *testing.T) {
 			input: ConfigData{
 				Backends: []Backend{
 					{
-						Name:             "openai",
-						Hostname:         "my-resource.openai.azure.com",
-						OriginalHostname: "my-resource.openai.azure.com",
-						Port:             443,
-						NeedsTLS:         true,
+						Name:     "openai",
+						Hostname: "my-resource.openai.azure.com",
+						Port:     443,
+						NeedsTLS: true,
 					},
 				},
 				OpenAI: &OpenAIConfig{
@@ -119,11 +120,10 @@ func TestWriteConfig(t *testing.T) {
 			input: ConfigData{
 				Backends: []Backend{
 					{
-						Name:             "openai",
-						Hostname:         "127.0.0.1.nip.io",
-						OriginalHostname: "localhost",
-						Port:             11434,
-						NeedsTLS:         false,
+						Name:     "openai",
+						Hostname: "localhost",
+						Port:     11434,
+						NeedsTLS: false,
 					},
 				},
 				OpenAI: &OpenAIConfig{
@@ -139,11 +139,10 @@ func TestWriteConfig(t *testing.T) {
 			input: ConfigData{
 				Backends: []Backend{
 					{
-						Name:             "openai",
-						Hostname:         "api.router.tetrate.ai",
-						OriginalHostname: "api.router.tetrate.ai",
-						Port:             443,
-						NeedsTLS:         true,
+						Name:     "openai",
+						Hostname: "api.router.tetrate.ai",
+						Port:     443,
+						NeedsTLS: true,
 					},
 				},
 				OpenAI: &OpenAIConfig{
@@ -159,11 +158,10 @@ func TestWriteConfig(t *testing.T) {
 			input: ConfigData{
 				Backends: []Backend{
 					{
-						Name:             "openai",
-						Hostname:         "openrouter.ai",
-						OriginalHostname: "openrouter.ai",
-						Port:             443,
-						NeedsTLS:         true,
+						Name:     "openai",
+						Hostname: "openrouter.ai",
+						Port:     443,
+						NeedsTLS: true,
 					},
 				},
 				OpenAI: &OpenAIConfig{
@@ -179,11 +177,10 @@ func TestWriteConfig(t *testing.T) {
 			input: ConfigData{
 				Backends: []Backend{
 					{
-						Name:             "openai",
-						Hostname:         "127.0.0.1.nip.io",
-						OriginalHostname: "localhost",
-						Port:             8321,
-						NeedsTLS:         false,
+						Name:     "openai",
+						Hostname: "localhost",
+						Port:     8321,
+						NeedsTLS: false,
 					},
 				},
 				OpenAI: &OpenAIConfig{
@@ -199,11 +196,10 @@ func TestWriteConfig(t *testing.T) {
 			input: ConfigData{
 				Backends: []Backend{
 					{
-						Name:             "openai",
-						Hostname:         "api.openai.com",
-						OriginalHostname: "api.openai.com",
-						Port:             443,
-						NeedsTLS:         true,
+						Name:     "openai",
+						Hostname: "api.openai.com",
+						Port:     443,
+						NeedsTLS: true,
 					},
 				},
 				OpenAI: &OpenAIConfig{
@@ -220,11 +216,10 @@ func TestWriteConfig(t *testing.T) {
 			input: ConfigData{
 				Backends: []Backend{
 					{
-						Name:             "openai",
-						Hostname:         "api.openai.com",
-						OriginalHostname: "api.openai.com",
-						Port:             443,
-						NeedsTLS:         true,
+						Name:     "openai",
+						Hostname: "api.openai.com",
+						Port:     443,
+						NeedsTLS: true,
 					},
 				},
 				OpenAI: &OpenAIConfig{
@@ -241,11 +236,10 @@ func TestWriteConfig(t *testing.T) {
 			input: ConfigData{
 				Backends: []Backend{
 					{
-						Name:             "openai",
-						Hostname:         "api.openai.com",
-						OriginalHostname: "api.openai.com",
-						Port:             443,
-						NeedsTLS:         true,
+						Name:     "openai",
+						Hostname: "api.openai.com",
+						Port:     443,
+						NeedsTLS: true,
 					},
 				},
 				OpenAI: &OpenAIConfig{
@@ -263,11 +257,10 @@ func TestWriteConfig(t *testing.T) {
 			input: ConfigData{
 				Backends: []Backend{
 					{
-						Name:             "openai",
-						Hostname:         "my-resource.openai.azure.com",
-						OriginalHostname: "my-resource.openai.azure.com",
-						Port:             443,
-						NeedsTLS:         true,
+						Name:     "openai",
+						Hostname: "my-resource.openai.azure.com",
+						Port:     443,
+						NeedsTLS: true,
 					},
 				},
 				OpenAI: &OpenAIConfig{
@@ -285,11 +278,10 @@ func TestWriteConfig(t *testing.T) {
 			input: ConfigData{
 				Backends: []Backend{
 					{
-						Name:             "openai",
-						Hostname:         "api.openai.com",
-						OriginalHostname: "api.openai.com",
-						Port:             443,
-						NeedsTLS:         true,
+						Name:     "openai",
+						Hostname: "api.openai.com",
+						Port:     443,
+						NeedsTLS: true,
 					},
 				},
 				OpenAI: &OpenAIConfig{
@@ -309,11 +301,10 @@ func TestWriteConfig(t *testing.T) {
 			input: ConfigData{
 				Backends: []Backend{
 					{
-						Name:             "kiwi",
-						Hostname:         "mcp.kiwi.com",
-						OriginalHostname: "mcp.kiwi.com",
-						Port:             443,
-						NeedsTLS:         true,
+						Name:     "kiwi",
+						Hostname: "mcp.kiwi.com",
+						Port:     443,
+						NeedsTLS: true,
 					},
 				},
 				MCPBackendRefs: []MCPBackendRef{
@@ -330,18 +321,16 @@ func TestWriteConfig(t *testing.T) {
 			input: ConfigData{
 				Backends: []Backend{
 					{
-						Name:             "openai",
-						Hostname:         "api.openai.com",
-						OriginalHostname: "api.openai.com",
-						Port:             443,
-						NeedsTLS:         true,
+						Name:     "openai",
+						Hostname: "api.openai.com",
+						Port:     443,
+						NeedsTLS: true,
 					},
 					{
-						Name:             "github",
-						Hostname:         "api.githubcopilot.com",
-						OriginalHostname: "api.githubcopilot.com",
-						Port:             443,
-						NeedsTLS:         true,
+						Name:     "github",
+						Hostname: "api.githubcopilot.com",
+						Port:     443,
+						NeedsTLS: true,
 					},
 				},
 				OpenAI: &OpenAIConfig{
@@ -354,11 +343,30 @@ func TestWriteConfig(t *testing.T) {
 						BackendName:  "github",
 						Path:         "/mcp/x/issues/readonly",
 						APIKey:       "${GITHUB_MCP_TOKEN}",
-						IncludeTools: []string{"get_issue", "list_issues"},
+						IncludeTools: []string{"issue_read", "list_issues"},
 					},
 				},
 			},
 			expected: openaiGithubYAML,
+		},
+		{
+			name: "default (Anthropic)",
+			input: ConfigData{
+				Backends: []Backend{
+					{
+						Name:     "anthropic",
+						Hostname: "api.anthropic.com",
+						Port:     443,
+						NeedsTLS: true,
+					},
+				},
+				Anthropic: &AnthropicConfig{
+					BackendName: "anthropic",
+					SchemaName:  "Anthropic",
+					Version:     "",
+				},
+			},
+			expected: anthropicYAML,
 		},
 	}
 
@@ -382,93 +390,66 @@ func TestParseURL(t *testing.T) {
 			name:    "HTTPS with default port",
 			baseURL: "https://api.openai.com/v1",
 			expected: parsedURL{
-				hostname:         "api.openai.com",
-				originalHostname: "api.openai.com",
-				port:             443,
-				version:          "", // v1 is omitted for cleaner output
-				needsTLS:         true,
-			},
-		},
-		{
-			name:    "localhost converted to nip.io",
-			baseURL: "http://localhost:11434/v1",
-			expected: parsedURL{
-				hostname:         "127.0.0.1.nip.io",
-				originalHostname: "localhost",
-				port:             11434,
-				version:          "", // v1 is omitted
-				needsTLS:         false,
-			},
-		},
-		{
-			name:    "127.0.0.1 converted to nip.io",
-			baseURL: "http://127.0.0.1:8080/v1",
-			expected: parsedURL{
-				hostname:         "127.0.0.1.nip.io",
-				originalHostname: "127.0.0.1",
-				port:             8080,
-				version:          "", // v1 is omitted
-				needsTLS:         false,
+				hostname: "api.openai.com",
+				port:     443,
+				version:  "", // v1 is omitted for cleaner output
+				needsTLS: true,
 			},
 		},
 		{
 			name:    "custom path preserved",
 			baseURL: "https://custom.ai/v1beta/openai",
 			expected: parsedURL{
-				hostname:         "custom.ai",
-				originalHostname: "custom.ai",
-				port:             443,
-				version:          "v1beta/openai",
-				needsTLS:         true,
+				hostname: "custom.ai",
+				port:     443,
+				version:  "v1beta/openai",
+				needsTLS: true,
 			},
 		},
 		{
 			name:    "HTTP with default port 80",
 			baseURL: "http://example.com/v1",
 			expected: parsedURL{
-				hostname:         "example.com",
-				originalHostname: "example.com",
-				port:             80,
-				version:          "", // v1 is omitted
-				needsTLS:         false,
+				hostname: "example.com",
+				port:     80,
+				version:  "", // v1 is omitted
+				needsTLS: false,
 			},
 		},
 		{
 			name:    "empty path treated as no version",
 			baseURL: "https://api.example.com",
 			expected: parsedURL{
-				hostname:         "api.example.com",
-				originalHostname: "api.example.com",
-				port:             443,
-				version:          "",
-				needsTLS:         true,
+				hostname: "api.example.com",
+				port:     443,
+				version:  "",
+				needsTLS: true,
 			},
 		},
 		{
 			name:    "trailing slash ignored",
 			baseURL: "https://api.example.com/",
 			expected: parsedURL{
-				hostname:         "api.example.com",
-				originalHostname: "api.example.com",
-				port:             443,
-				version:          "",
-				needsTLS:         true,
+				hostname: "api.example.com",
+				port:     443,
+				version:  "",
+				needsTLS: true,
 			},
 		},
 		{
 			name:          "invalid URL",
 			baseURL:       ":::invalid",
-			expectedError: fmt.Errorf("invalid OPENAI_BASE_URL: parse \":::invalid\": missing protocol scheme"),
+			expectedError: fmt.Errorf("invalid base URL: parse \":::invalid\": missing protocol scheme"),
 		},
 		{
 			name:          "missing hostname",
 			baseURL:       "http:///path",
-			expectedError: fmt.Errorf("invalid OPENAI_BASE_URL: missing hostname"),
+			expectedError: fmt.Errorf("invalid base URL: missing hostname"),
 		},
 		{
 			name:          "unsupported scheme",
 			baseURL:       "ftp://example.com",
-			expectedError: fmt.Errorf("invalid OPENAI_BASE_URL: unsupported scheme \"ftp\""),
+			expectedError: fmt.Errorf("invalid base URL: unsupported scheme \"ftp\""),
 		},
 	}
 

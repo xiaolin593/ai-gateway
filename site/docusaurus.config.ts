@@ -93,6 +93,11 @@ const config: Config = {
               path: '/',
               banner: 'none'
             },
+            '0.4': {
+              label: '0.4',
+              path: '0.4',
+              banner: 'none'
+            },
             '0.3': {
               label: '0.3',
               path: '0.3',
@@ -120,6 +125,8 @@ const config: Config = {
           onInlineTags: 'warn',
           onInlineAuthors: 'warn',
           onUntruncatedBlogPosts: 'warn',
+          blogSidebarTitle: 'Blog posts',
+          blogSidebarCount: 'ALL',
         },
         theme: {
           customCss: './src/css/custom.css',
@@ -158,12 +165,16 @@ const config: Config = {
               href: 'https://envoyproxy.slack.com/archives/C07Q4N24VAA',
             },
              {
-              label: 'Weekly Meeting Notes (Thursdays)',
+              label: 'Weekly Meeting Notes (Mondays)',
               href: 'https://docs.google.com/document/d/10e1sfsF-3G3Du5nBHGmLjXw5GVMqqCvFDqp_O65B0_w/edit?tab=t.0',
             },
             {
               label: 'GitHub Discussions',
               href: 'https://github.com/envoyproxy/ai-gateway/issues?q=is%3Aissue+label%3Adiscussion',
+            },
+            {
+              label: 'Talks and Presentations',
+              to: '/talks',
             },
           ],
         },
@@ -215,7 +226,7 @@ const config: Config = {
               href: 'https://communityinviter.com/apps/envoyproxy/envoy',
             },
             {
-              label: 'Weekly Meeting (Thursdays)',
+              label: 'Weekly Meeting (Mondays)',
               href: 'https://zoom-lfx.platform.linuxfoundation.org/meeting/91546415944?password=61fd5a5d-41e9-4b0c-86ea-b607c4513e37',
             },
             {
@@ -225,6 +236,10 @@ const config: Config = {
             {
               label: 'LinkedIn',
               href: 'https://www.linkedin.com/company/envoy-cloud-native',
+            },
+            {
+              label: 'Talks and Presentations',
+              to: '/talks',
             },
           ],
         },

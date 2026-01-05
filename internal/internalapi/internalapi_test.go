@@ -12,6 +12,47 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestParseEndpointPrefixes_Success(t *testing.T) {
+	in := "openai:/foo,cohere:/1/2/3,anthropic:/cat"
+	ep, err := ParseEndpointPrefixes(in)
+	require.NoError(t, err)
+	require.Equal(t, "/foo", ep.OpenAI)
+	require.Equal(t, "/1/2/3", ep.Cohere)
+	require.Equal(t, "/cat", ep.Anthropic)
+}
+
+func TestParseEndpointPrefixes_EmptyInput(t *testing.T) {
+	ep, err := ParseEndpointPrefixes("")
+	require.NoError(t, err)
+	require.Equal(t, "/", ep.OpenAI)
+	require.Equal(t, "/cohere", ep.Cohere)
+	require.Equal(t, "/anthropic", ep.Anthropic)
+}
+
+func TestParseEndpointPrefixes_UnknownKey(t *testing.T) {
+	_, err := ParseEndpointPrefixes("unknown:/x")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown endpointPrefixes key")
+}
+
+func TestParseEndpointPrefixes_EmptyValue(t *testing.T) {
+	ep, err := ParseEndpointPrefixes("openai:")
+	require.NoError(t, err)
+	require.Empty(t, ep.OpenAI)
+}
+
+func TestParseEndpointPrefixes_MissingColon(t *testing.T) {
+	_, err := ParseEndpointPrefixes("openai")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "expected format: key:value")
+}
+
+func TestParseEndpointPrefixes_EmptyPair(t *testing.T) {
+	_, err := ParseEndpointPrefixes("openai:/,,cohere:/cohere")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "empty endpointPrefixes pair at position 2")
+}
+
 func TestPerRouteRuleRefBackendName(t *testing.T) {
 	tests := []struct {
 		name           string

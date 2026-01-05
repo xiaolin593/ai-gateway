@@ -67,9 +67,7 @@ jobs:
             ~/go/pkg/mod
             ~/go/bin
           key: unittest-${{ hashFiles('**/go.mod', '**/go.sum', '**/Makefile') }}-${{ matrix.os }}
-      - run: make test-coverage
-      - if: failure()
-        run: cat ollama.log || true
+      - run: make test-coverage GO_TEST_ARGS='-race'
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@18283e04ce6e62d37312384ff67231eb8fd56d24 # v5.4.3
@@ -104,7 +102,7 @@ jobs:
             ~/.cache/go-build
             ~/go/pkg/mod
             ~/go/bin
-          key: celvalidation-test-${{ hashFiles('**/go.mod', '**/go.sum', '**/Makefile') }}-${{ matrix.os }}
+          key: controller-test-${{ hashFiles('**/go.mod', '**/go.sum', '**/Makefile') }}-${{ matrix.os }}
       - run: make test-crdcel
 
   test_controller:
@@ -133,23 +131,16 @@ jobs:
           key: controller-test-${{ hashFiles('**/go.mod', '**/go.sum', '**/Makefile') }}-${{ matrix.os }}
       - run: make test-controller
 
-  test_extproc:
+  test_data_plane:
     needs: changes
     if: ${{ needs.changes.outputs.code == 'true' }}
-    name: External Processor Test (Envoy v${{ matrix.version }} on ${{ matrix.os }})
+    name: Data Plane Test (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        # Note: we cannot run the latest Envoy version on macOS due to https://github.com/tetratelabs/archive-envoy/issues/12.
-        # Once it's supported, the following "binary installation" steps below can be just removed and
-        # we can simply exec.Cmd with "go tool -modfile=tools/go.mod func-e run" with the envoy version configured via ENVOY_VERSION env var.
-        include:
-          - version: 1.35.0 # NOTE: when updating this, also update the comment in the CONTRIBUTING.md file.
-            os: ubuntu-latest
-          - version: 1.35.0 # NOTE: when updating this, also update the comment in the CONTRIBUTING.md file.
-            os: macos-latest
-          - version: latest
-            os: ubuntu-latest
+        os:
+          - ubuntu-latest
+          - macos-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -163,31 +154,46 @@ jobs:
             ~/.cache/go-build
             ~/go/pkg/mod
             ~/go/bin
-          key: extproc-tests-${{ hashFiles('**/go.mod', '**/go.sum', '**/Makefile') }}
-      - name: Install stable Envoy via func-e
-        if: matrix.version != 'latest'
-        run: |
-          go tool -modfile=tools/go.mod func-e use ${{ matrix.version }}
-          echo $HOME/.func-e/versions/${{ matrix.version }}/bin >> $GITHUB_PATH
-      - name: Install latest Envoy
-        if: matrix.version == 'latest'
-        run: |
-          export ENVOY_BIN_DIR=$HOME/envoy/bin
-          mkdir -p $ENVOY_BIN_DIR
-          docker run -v $ENVOY_BIN_DIR:/tmp/ci -w /tmp/ci \
-          --entrypoint /bin/cp envoyproxy/envoy-dev:latest /usr/local/bin/envoy .
-          echo $ENVOY_BIN_DIR >> $GITHUB_PATH
+          key: data-plane-tests-${{ hashFiles('**/go.mod', '**/go.sum', '**/Makefile') }}
       - env:
           TEST_AWS_ACCESS_KEY_ID: ${{ secrets.AWS_BEDROCK_USER_AWS_ACCESS_KEY_ID }}
           TEST_AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_BEDROCK_USER_AWS_SECRET_ACCESS_KEY }}
           TEST_OPENAI_API_KEY: ${{ secrets.ENVOY_AI_GATEWAY_OPENAI_API_KEY }}
           TEST_GEMINI_API_KEY: ${{ secrets.ENVOY_AI_GATEWAY_GEMINI_API_KEY }}
+          TEST_COHERE_API_KEY: ${{ secrets.ENVOY_AI_GATEWAY_COHERE_API_KEY }}
           TEST_GROQ_API_KEY: ${{ secrets.ENVOY_AI_GATEWAY_GROQ_API_KEY }}
           TEST_GROK_API_KEY: ${{ secrets.ENVOY_AI_GATEWAY_GROK_API_KEY }}
           TEST_SAMBANOVA_API_KEY: ${{ secrets.ENVOY_AI_GATEWAY_SAMBANOVA_API_KEY }}
           TEST_DEEPINFRA_API_KEY: ${{ secrets.ENVOY_AI_GATEWAY_DEEPINFRA_API_KEY }}
-          TEST_GITHUB_ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: make test-extproc
+        run: make test-data-plane
+
+  test_data_plane_mcp:
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
+    name: Data Plane MCP Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          cache: false
+          go-version-file: go.mod
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/go/bin
+          key: data-plane-tests-${{ hashFiles('**/go.mod', '**/go.sum', '**/Makefile') }}
+      - run: make test-data-plane-mcp
+        env:
+          TEST_GITHUB_ACCESS_TOKEN: ${{ secrets.TEST_GITHUB_ACCESS_TOKEN }}
 
   test_e2e:
     needs: changes
@@ -205,8 +211,8 @@ jobs:
         include:
           - name: latest
             envoy_gateway_version: v0.0.0-latest
-          - name: v1.5.0
-            envoy_gateway_version: v1.5.0
+          - name: v1.6.0
+            envoy_gateway_version: v1.6.0
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -229,6 +235,7 @@ jobs:
           TEST_OPENAI_API_KEY: ${{ secrets.ENVOY_AI_GATEWAY_OPENAI_API_KEY }}
           TEST_ANTHROPIC_API_KEY: ${{ secrets.ENVOY_AI_GATEWAY_ANTHROPIC_API_KEY }}
           TEST_GEMINI_API_KEY: ${{ secrets.ENVOY_AI_GATEWAY_GEMINI_API_KEY }}
+          TEST_COHERE_API_KEY: ${{ secrets.ENVOY_AI_GATEWAY_COHERE_API_KEY }}
         run: make test-e2e
 
   test_e2e_upgrade:
@@ -264,7 +271,7 @@ jobs:
       - run: make test-e2e-upgrade
         env:
           # We only need to test the upgrade from the latest stable version of EG.
-          EG_VERSION: v1.5.0
+          EG_VERSION: v1.6.0
           K8S_VERSION: ${{ matrix.k8s-version }}
 
   test_e2e_inference_extension:
@@ -293,9 +300,7 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - run: make test-e2e-inference-extension
         env:
-          # We only need to test with the latest stable version of EG, since these e2e tests
-          # do not depend on the EG version.
-          EG_VERSION: v1.5.0
+          EG_VERSION: v1.6.0
 
   test_e2e_namespaced:
     needs: changes
@@ -325,7 +330,7 @@ jobs:
         env:
           # We only need to test with the latest stable version of EG, since these e2e tests
           # do not depend on the EG version.
-          EG_VERSION: v1.5.0
+          EG_VERSION: v1.6.0
 
   test_e2e_aigw:
     needs: changes
@@ -361,7 +366,7 @@ jobs:
       - name: Download Envoy via func-e
         run: go tool -modfile=tools/go.mod func-e run --version
         env:
-          FUNC_E_HOME: /tmp/envoy-gateway # hard-coded directory in EG
+          FUNC_E_DATA_HOME: ~/.local/share/aigw
       - name: Install Goose
         env:
           GOOSE_VERSION: v1.10.0
@@ -369,8 +374,7 @@ jobs:
         run: |
           curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash
       - env:
-          # This is used to access the GitHub MCP server.
-          TEST_GITHUB_ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEST_GITHUB_ACCESS_TOKEN: ${{ secrets.TEST_GITHUB_ACCESS_TOKEN }}
         run: make test-e2e-aigw
       - if: failure()
         run: cat ollama.log || true
@@ -409,10 +413,11 @@ jobs:
       - unittest
       - test_crdcel
       - test_controller
-      - test_extproc
       - test_e2e
       - test_e2e_upgrade
       - test_e2e_inference_extension
+      - test_data_plane
+      - test_data_plane_mcp
       - test_e2e_aigw
     # We need this to run always to force-fail (and not skip) if any needed
     # job has failed. Otherwise, a skipped job will not fail the workflow.

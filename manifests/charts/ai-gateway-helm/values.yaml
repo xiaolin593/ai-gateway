@@ -14,6 +14,16 @@ endpointConfig:
   #
   # This can be used for providing a separation between AIGatewayRoutes and normal HTTPRoutes when the top level "/v1/" is not desired.
   rootPrefix: "/"
+  # Explicit provider prefixes.
+  # Defaults align with the gateway's built-in provider prefixes.
+  # and can be set to empty string to remove the extra provider root segment.
+  # Examples:
+  #   openai: ""           # results in /v1/...
+  #   cohere: "/cohere"   # results in /cohere/v2/...
+  #   anthropic: "/anthropic" # results in /anthropic/v1/...
+  openai: ""
+  cohere: "/cohere"
+  anthropic: "/anthropic"
 
 extProc:
   image:
@@ -32,6 +42,10 @@ extProc:
   ##     value: "ai-gateway-extproc"
   ##   - name: OTEL_TRACES_EXPORTER
   ##     value: "otlp"
+  ##   # This disables pprof endpoint at "localhost:6060/debug/pprof" that can be accessed via port-forwarding for profiling.
+  ##   # Enabled by default for troubleshooting purposes given the impact is negligible when not in use.
+  ##   - name: DISABLE_PPROF
+  ##     value: "true"
   ##
   extraEnvVars: []
 
@@ -39,9 +53,6 @@ controller:
   logLevel: info
   nameOverride: ""
   fullnameOverride: "ai-gateway-controller"
-
-  # DEPRECATED: metricsRequestHeaderLabels will be removed after v0.4. Use metricsRequestHeaderAttributes instead.
-  metricsRequestHeaderLabels: ""
 
   # Comma-separated key-value pairs for mapping HTTP request headers to Otel metric attributes.
   # Format: "header1:label1,header2:label2"
@@ -52,6 +63,7 @@ controller:
   # Format: "header1:attribute1,header2:attribute2"
   # Example: "x-session-id:session.id,x-user-id:user.id"
   spanRequestHeaderAttributes: ""
+
 
   # -- Service Account --
   serviceAccount:
@@ -103,9 +115,10 @@ controller:
   ## @param controller.extraEnvVars Array with extra environment variables to add to controller containers
   ## e.g:
   ## extraEnvVars:
-  ##   - name: FOO
-  ##     value: "bar"
-  ##
+  ##   # This disables pprof endpoint at "localhost:6060/debug/pprof" that can be accessed via port-forwarding for profiling.
+  ##   # Enabled by default for troubleshooting purposes given the impact is negligible when not in use.
+  ##   - name: DISABLE_PPROF
+  ##     value: "true"
   extraEnvVars: []
 
   # Example of volumes
@@ -160,6 +173,17 @@ controller:
       issuerName: self-signed-issuer-for-mutating-webhook
       # The name of the certificate.
       certificateName: self-signed-cert-for-mutating-webhook
+    # The object selector for the mutating webhook. By default it selects envoy-gateway managed objects.
+    objectSelector:
+      matchLabels:
+        app.kubernetes.io/managed-by: envoy-gateway
+    # Example of namespaceSelector to select the webhook target based on namespaces.
+    # See: https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#matching-requests-namespaceselector
+    #   namespaceSelector:
+    #     matchExpressions:
+    #     - key: environment
+    #       operator: In
+    #       values: ["prod","staging"]
 
   resources: {}
   nodeSelector: {}
@@ -172,12 +196,25 @@ controller:
   # resources (configuration) is big. Defaults to 4MB.
   # maxRecvMsgSize: "4194304"
 
-  # mcpSessionEncryptionSeed is an arbitrary string seed used to derive the MCP session encryption key.
-  #	Do not include commas as they are used as separators. You can optionally pass "fallback" seed after the first one to allow for key rotation.
-  #	For example: "new-seed,old-seed-for-fallback". The fallback seed is only used for decryption.
-  #
-  # This value should be set to a secure random string in production environments instead of the default below.
-  mcpSessionEncryptionSeed: "default-insecure-seed"
+  # MCP Proxy settings
+  mcp:
+    # Configuration for MCP session encryption.
+    sessionEncryption:
+      # Seed used to derive the MCP session encryption key.
+      # This value should be set to a secure random string in production environments instead of the default below.
+      seed: "default-insecure-seed"
+      # Number of PBKDF2 iterations to use for deriving the MCP session encryption key.
+      # A higher number increases security but also increases CPU usage and time consumed during key derivation.
+      # The default value of 100,000 is a reasonable balance for most production environments.
+      iterations: 100000
+      # Optional fallback configuration for MCP session encryption key rotation.
+      fallback:
+        # Fallback seed used to derive the MCP session encryption key.
+        # Set to a non-empty value to enable fallback.
+        # It should be the previous seed used before changing to the new seed.
+        seed: ""
+        # Number of PBKDF2 iterations to use for deriving the MCP session encryption key with the fallback seed.
+        iterations: 100000
 
 # Configuration for the Envoy Gateway component that AI Gateway relies on to program Envoy.
 envoyGateway:

@@ -15,15 +15,24 @@ import (
 	"strconv"
 	"testing"
 
-	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/propagation"
 	"k8s.io/utils/ptr"
 
+	cohereschema "github.com/envoyproxy/ai-gateway/internal/apischema/cohere"
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 	"github.com/envoyproxy/ai-gateway/internal/testing/testotel"
 	tracing "github.com/envoyproxy/ai-gateway/internal/tracing/api"
 	"github.com/envoyproxy/ai-gateway/internal/tracing/openinference"
 )
+
+// clearEnv clears any OTEL configuration that could exist in the environment.
+func clearEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_METRICS_EXPORTER", "")
+	t.Setenv("OTEL_SERVICE_NAME", "")
+}
 
 // TestNewTracingFromEnv_DefaultServiceName tests that the service name.
 // defaults to "ai-gateway" when OTEL_SERVICE_NAME is not set.
@@ -52,6 +61,7 @@ func TestNewTracingFromEnv_DefaultServiceName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			clearEnv(t)
 			for k, v := range tt.env {
 				t.Setenv(k, v)
 			}
@@ -109,6 +119,7 @@ func TestNewTracingFromEnv_DisabledByEnv(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			clearEnv(t)
 			for k, v := range tt.env {
 				t.Setenv(k, v)
 			}
@@ -162,6 +173,7 @@ func TestNewTracingFromEnv_EndpointHierarchy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			clearEnv(t)
 			for k, v := range tt.env {
 				t.Setenv(k, v)
 			}
@@ -226,6 +238,7 @@ func TestNewTracingFromEnv_ConsoleExporter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			clearEnv(t)
 			for k, v := range tt.env {
 				t.Setenv(k, v)
 			}
@@ -274,6 +287,7 @@ func TestNewTracingFromEnv_Exporter(t *testing.T) {
 	// Just test 2 exporters to prove the SDK is wired up correctly.
 	for _, exporter := range []string{"console", "otlp"} {
 		t.Run(exporter, func(t *testing.T) {
+			clearEnv(t)
 			t.Setenv("OTEL_TRACES_EXPORTER", exporter)
 
 			var stdout bytes.Buffer
@@ -313,6 +327,7 @@ func TestNewTracingFromEnv_TracesSampler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.sampler, func(t *testing.T) {
+			clearEnv(t)
 			t.Setenv("OTEL_TRACES_SAMPLER", tt.sampler)
 			collector, tracing := newTracingFromEnvForTest(t, io.Discard)
 
@@ -359,21 +374,21 @@ func TestNewTracingFromEnv_OtelPropagators(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.propagator, func(t *testing.T) {
+			clearEnv(t)
 			t.Setenv("OTEL_PROPAGATORS", tt.propagator)
 			collector, tracing := newTracingFromEnvForTest(t, io.Discard)
 
 			// Create headers for injection.
-			headerMutation := &extprocv3.HeaderMutation{}
+			carrier := propagation.MapCarrier{}
 
 			// Start span and inject headers.
-			span := startCompletionsSpan(t, tracing, headerMutation)
+			span := startCompletionsSpan(t, tracing, carrier)
 			require.NotNil(t, span)
 			span.EndSpan()
 
 			// Check that the expected header was injected.
-			require.Len(t, headerMutation.SetHeaders, 1, "expected exactly one header to be set")
-			header := headerMutation.SetHeaders[0].Header
-			require.Equal(t, tt.expectHeaderKey, header.Key)
+			require.Len(t, carrier, 1, "expected exactly one header to be set")
+			require.Contains(t, carrier, tt.expectHeaderKey)
 
 			// Get the span to check trace/span IDs.
 			v1Span := collector.TakeSpan()
@@ -385,7 +400,7 @@ func TestNewTracingFromEnv_OtelPropagators(t *testing.T) {
 
 			// Verify the header value format.
 			expectedValue := tt.expectHeaderFormat(traceIDStr, spanIDStr)
-			require.Equal(t, expectedValue, string(header.RawValue))
+			require.Equal(t, expectedValue, carrier[tt.expectHeaderKey])
 		})
 	}
 }
@@ -424,6 +439,7 @@ func TestNewTracingFromEnv_ChatCompletion_Redaction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			clearEnv(t)
 			t.Setenv(openinference.EnvHideInputs, strconv.FormatBool(tt.hideInputs))
 			t.Setenv(openinference.EnvHideOutputs, strconv.FormatBool(tt.hideOutputs))
 
@@ -458,7 +474,7 @@ func TestNewTracingFromEnv_ChatCompletion_Redaction(t *testing.T) {
 			span := tracer.StartSpanAndInjectHeaders(
 				t.Context(),
 				map[string]string{},
-				&extprocv3.HeaderMutation{},
+				propagation.MapCarrier{},
 				req,
 				reqBody,
 			)
@@ -513,12 +529,6 @@ func newTracingFromEnvForTest(t *testing.T, stdout io.Writer) (*testotel.OTLPCol
 	return collector, result
 }
 
-func TestNoopShutdown(t *testing.T) {
-	ns := noopShutdown{}
-	err := ns.Shutdown(t.Context())
-	require.NoError(t, err)
-}
-
 // TestNewTracingFromEnv_OTLPHeaders tests that OTEL_EXPORTER_OTLP_HEADERS
 // is properly handled by the autoexport package.
 func TestNewTracingFromEnv_OTLPHeaders(t *testing.T) {
@@ -530,6 +540,7 @@ func TestNewTracingFromEnv_OTLPHeaders(t *testing.T) {
 	}))
 	t.Cleanup(ts.Close)
 
+	clearEnv(t)
 	t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "Authorization="+expectedAuthorization)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", ts.URL)
 	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
@@ -551,6 +562,46 @@ func TestNewTracingFromEnv_OTLPHeaders(t *testing.T) {
 	}
 
 	require.Equal(t, expectedAuthorization, <-actualAuthorization)
+}
+
+// TestNewTracingFromEnv_HeaderAttributeMapping verifies that headerAttributeMapping
+// passed to NewTracingFromEnv is applied by tracers to set span attributes.
+func TestNewTracingFromEnv_HeaderAttributeMapping(t *testing.T) {
+	collector := testotel.StartOTLPCollector()
+	t.Cleanup(collector.Close)
+	clearEnv(t)
+	collector.SetEnv(t.Setenv)
+
+	mapping := map[string]string{
+		"x-session-id": "session.id",
+		"x-user-id":    "user.id",
+	}
+
+	result, err := NewTracingFromEnv(t.Context(), io.Discard, mapping)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = result.Shutdown(context.Background()) })
+
+	headers := map[string]string{
+		"x-session-id": "abc123",
+		"x-user-id":    "user456",
+	}
+	carrier := propagation.MapCarrier{}
+
+	tr := result.ChatCompletionTracer()
+	req := &openai.ChatCompletionRequest{Model: openai.ModelGPT5Nano}
+	span := tr.StartSpanAndInjectHeaders(t.Context(), headers, carrier, req, []byte("{}"))
+	require.NotNil(t, span)
+	span.EndSpan()
+
+	v1Span := collector.TakeSpan()
+	require.NotNil(t, v1Span)
+
+	attrs := make(map[string]string)
+	for _, kv := range v1Span.Attributes {
+		attrs[kv.Key] = kv.Value.GetStringValue()
+	}
+	require.Equal(t, "abc123", attrs["session.id"])
+	require.Equal(t, "user456", attrs["user.id"])
 }
 
 // TestNewTracingFromEnv_Embeddings_Redaction tests that the OpenInference
@@ -587,6 +638,7 @@ func TestNewTracingFromEnv_Embeddings_Redaction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			clearEnv(t)
 			t.Setenv(openinference.EnvHideEmbeddingsText, strconv.FormatBool(tt.hideEmbeddingsText))
 			t.Setenv(openinference.EnvHideEmbeddingsVectors, strconv.FormatBool(tt.hideEmbeddingsVectors))
 
@@ -621,7 +673,7 @@ func TestNewTracingFromEnv_Embeddings_Redaction(t *testing.T) {
 			span := tracer.StartSpanAndInjectHeaders(
 				t.Context(),
 				map[string]string{},
-				&extprocv3.HeaderMutation{},
+				propagation.MapCarrier{},
 				req,
 				reqBody,
 			)
@@ -663,12 +715,24 @@ func TestNewTracingFromEnv_Embeddings_Redaction(t *testing.T) {
 }
 
 // startCompletionsSpan is a test helper that creates a span with a basic request.
-// If headerMutation is nil, a new empty HeaderMutation will be created.
-func startCompletionsSpan(t *testing.T, tracing tracing.Tracing, headerMutation *extprocv3.HeaderMutation) tracing.ChatCompletionSpan {
-	if headerMutation == nil {
-		headerMutation = &extprocv3.HeaderMutation{}
+func startCompletionsSpan(t *testing.T, tracing tracing.Tracing, carrier propagation.MapCarrier) tracing.ChatCompletionSpan {
+	if carrier == nil {
+		carrier = propagation.MapCarrier{}
 	}
 	tracer := tracing.ChatCompletionTracer()
 	req := &openai.ChatCompletionRequest{Model: openai.ModelGPT5Nano}
-	return tracer.StartSpanAndInjectHeaders(t.Context(), nil, headerMutation, req, nil)
+	return tracer.StartSpanAndInjectHeaders(t.Context(), nil, carrier, req, nil)
+}
+
+func TestTracingImpl_Getters_ImageGenerationAndRerank(t *testing.T) {
+	ig := tracing.NoopTracer[openai.ImageGenerationRequest, openai.ImageGenerationResponse, struct{}]{}
+	rr := tracing.NoopTracer[cohereschema.RerankV2Request, cohereschema.RerankV2Response, struct{}]{}
+
+	ti := &tracingImpl{
+		imageGenerationTracer: ig,
+		rerankTracer:          rr,
+	}
+
+	require.Equal(t, ig, ti.ImageGenerationTracer())
+	require.Equal(t, rr, ti.RerankTracer())
 }

@@ -6,8 +6,10 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"strings"
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
 	"github.com/go-logr/logr"
@@ -250,23 +252,20 @@ func (c *MCPRouteController) newMainHTTPRoute(dst *gwapiv1.HTTPRoute, mcpRoute *
 
 	// Add OAuth metadata endpoints if authentication is configured.
 	if mcpRoute.Spec.SecurityPolicy != nil && mcpRoute.Spec.SecurityPolicy.OAuth != nil {
-		// Extract path component for RFC 8414 compliant well-known URI construction
-		// RFC 8414: https://datatracker.ietf.org/doc/html/rfc8414#section-3.1
-		// Pattern: "/.well-known/oauth-authorization-server" + issuer_path_component.
-
 		// OAuth 2.0 Protected Resource Metadata (RFC 9728) - serve in both root and suffix paths because different clients
 		// may expect either.
 		// TODO: only one MCPRoute targeting the same listener can be configured with OAuth due to the fixed well-known path.
 		httpRouteFilterName := oauthProtectedResourceMetadataName(mcpRoute.Name)
 
-		// Root path: /.well-known/oauth-protected-resource.
-		protectedResourceRootRule := gwapiv1.HTTPRouteRule{
-			Name: ptr.To(gwapiv1.SectionName("oauth-protected-resource-metadata-root")),
+		// Suffix path: /.well-known/oauth-protected-resource{pathPrefix} (if pathPrefix exists).
+		protectedResourceSuffixPath := fmt.Sprintf("/.well-known/oauth-protected-resource%s", strings.TrimSuffix(servingPath, "/"))
+		protectedResourceSuffixRule := gwapiv1.HTTPRouteRule{
+			Name: ptr.To(gwapiv1.SectionName("oauth-protected-resource-metadata")),
 			Matches: []gwapiv1.HTTPRouteMatch{
 				{
 					Path: &gwapiv1.HTTPPathMatch{
 						Type:  ptr.To(gwapiv1.PathMatchExact),
-						Value: ptr.To(oauthWellKnownProtectedResourceMetadataPath),
+						Value: ptr.To(protectedResourceSuffixPath),
 					},
 				},
 			},
@@ -281,47 +280,22 @@ func (c *MCPRouteController) newMainHTTPRoute(dst *gwapiv1.HTTPRoute, mcpRoute *
 				},
 			},
 		}
-		rules = append(rules, protectedResourceRootRule)
+		rules = append(rules, protectedResourceSuffixRule)
 
-		// Suffix path: /.well-known/oauth-protected-resource{pathPrefix} (if pathPrefix exists).
-		if servingPath != "/" {
-			protectedResourceSuffixPath := fmt.Sprintf("/.well-known/oauth-protected-resource%s", servingPath)
-			protectedResourceSuffixRule := gwapiv1.HTTPRouteRule{
-				Name: ptr.To(gwapiv1.SectionName("oauth-protected-resource-metadata-suffix")),
-				Matches: []gwapiv1.HTTPRouteMatch{
-					{
-						Path: &gwapiv1.HTTPPathMatch{
-							Type:  ptr.To(gwapiv1.PathMatchExact),
-							Value: ptr.To(protectedResourceSuffixPath),
-						},
-					},
-				},
-				Filters: []gwapiv1.HTTPRouteFilter{
-					{
-						Type: gwapiv1.HTTPRouteFilterExtensionRef,
-						ExtensionRef: &gwapiv1.LocalObjectReference{
-							Group: gwapiv1.Group("gateway.envoyproxy.io"),
-							Kind:  gwapiv1.Kind("HTTPRouteFilter"),
-							Name:  gwapiv1.ObjectName(httpRouteFilterName),
-						},
-					},
-				},
-			}
-			rules = append(rules, protectedResourceSuffixRule)
-		}
-
-		// OAuth 2.0 Authorization Server Metadata (RFC 8414) - serve in both root and suffix paths because different clients
-		// may expect either.
+		// Extract path component for RFC 8414 compliant well-known URI construction
+		// RFC 8414: https://datatracker.ietf.org/doc/html/rfc8414#section-3.1
+		// Pattern: "/.well-known/oauth-authorization-server" + issuer_path_component.
 		authServerMeataFilterName := oauthAuthServerMetadataFilterName(mcpRoute.Name)
 
-		// Root path: /.well-known/oauth-authorization-server.
-		authServerRootRule := gwapiv1.HTTPRouteRule{
-			Name: ptr.To(gwapiv1.SectionName("oauth-authorization-server-metadata-root")),
+		// Suffix path: /.well-known/oauth-authorization-server{pathPrefix} (if pathPrefix exists).
+		authServerSuffixPath := fmt.Sprintf("%s%s", oauthWellKnownAuthorizationServerMetadataPath, strings.TrimSuffix(servingPath, "/"))
+		authServerSuffixRule := gwapiv1.HTTPRouteRule{
+			Name: ptr.To(gwapiv1.SectionName("oauth-authorization-server-metadata")),
 			Matches: []gwapiv1.HTTPRouteMatch{
 				{
 					Path: &gwapiv1.HTTPPathMatch{
 						Type:  ptr.To(gwapiv1.PathMatchExact),
-						Value: ptr.To(oauthWellKnownAuthorizationServerMetadataPath),
+						Value: ptr.To(authServerSuffixPath),
 					},
 				},
 			},
@@ -336,34 +310,30 @@ func (c *MCPRouteController) newMainHTTPRoute(dst *gwapiv1.HTTPRoute, mcpRoute *
 				},
 			},
 		}
-		rules = append(rules, authServerRootRule)
-
-		// Suffix path: /.well-known/oauth-authorization-server{pathPrefix} (if pathPrefix exists).
-		if servingPath != "/" {
-			authServerSuffixPath := fmt.Sprintf("%s%s", oauthWellKnownAuthorizationServerMetadataPath, servingPath)
-			authServerSuffixRule := gwapiv1.HTTPRouteRule{
-				Name: ptr.To(gwapiv1.SectionName("oauth-authorization-server-metadata-suffix")),
-				Matches: []gwapiv1.HTTPRouteMatch{
-					{
-						Path: &gwapiv1.HTTPPathMatch{
-							Type:  ptr.To(gwapiv1.PathMatchExact),
-							Value: ptr.To(authServerSuffixPath),
-						},
+		// Suffix path: /.well-known/openid-configuration{pathPrefix} (if pathPrefix exists).
+		authServerSuffixPathOIDC := fmt.Sprintf("%s%s", oidcWellKnownMetadataPath, servingPath)
+		authServerSuffixRuleOIDC := gwapiv1.HTTPRouteRule{
+			Name: ptr.To(gwapiv1.SectionName("oauth-authorization-server-metadata-oidc")),
+			Matches: []gwapiv1.HTTPRouteMatch{
+				{
+					Path: &gwapiv1.HTTPPathMatch{
+						Type:  ptr.To(gwapiv1.PathMatchExact),
+						Value: ptr.To(authServerSuffixPathOIDC),
 					},
 				},
-				Filters: []gwapiv1.HTTPRouteFilter{
-					{
-						Type: gwapiv1.HTTPRouteFilterExtensionRef,
-						ExtensionRef: &gwapiv1.LocalObjectReference{
-							Group: gwapiv1.Group("gateway.envoyproxy.io"),
-							Kind:  gwapiv1.Kind("HTTPRouteFilter"),
-							Name:  gwapiv1.ObjectName(authServerMeataFilterName),
-						},
+			},
+			Filters: []gwapiv1.HTTPRouteFilter{
+				{
+					Type: gwapiv1.HTTPRouteFilterExtensionRef,
+					ExtensionRef: &gwapiv1.LocalObjectReference{
+						Group: gwapiv1.Group("gateway.envoyproxy.io"),
+						Kind:  gwapiv1.Kind("HTTPRouteFilter"),
+						Name:  gwapiv1.ObjectName(authServerMeataFilterName),
 					},
 				},
-			}
-			rules = append(rules, authServerSuffixRule)
+			},
 		}
+		rules = append(rules, authServerSuffixRule, authServerSuffixRuleOIDC)
 	}
 	dst.Spec.Rules = rules
 
@@ -431,7 +401,11 @@ func (c *MCPRouteController) newPerBackendRefHTTPRoute(ctx context.Context, dst 
 // syncGateways synchronizes the gateways referenced by the MCPRoute by sending events to the gateway controller.
 func (c *MCPRouteController) syncGateways(ctx context.Context, mcpRoute *aigv1a1.MCPRoute) error {
 	for _, p := range mcpRoute.Spec.ParentRefs {
-		c.syncGateway(ctx, mcpRoute.Namespace, string(p.Name))
+		gwNamespace := mcpRoute.Namespace
+		if p.Namespace != nil {
+			gwNamespace = string(*p.Namespace)
+		}
+		c.syncGateway(ctx, gwNamespace, string(p.Name))
 	}
 	return nil
 }
@@ -608,9 +582,9 @@ func (c *MCPRouteController) ensureMCPBackendRefHTTPFilter(ctx context.Context, 
 		if secretErr := c.ensureCredentialSecret(ctx, mcpRoute.Namespace, secretName, apiKey, mcpRoute); secretErr != nil {
 			return fmt.Errorf("failed to ensure credential secret: %w", secretErr)
 		}
-
+		header := cmp.Or(ptr.Deref(apiKey.Header, ""), "Authorization")
 		filter.Spec.CredentialInjection = &egv1a1.HTTPCredentialInjectionFilter{
-			Header:    ptr.To("Authorization"),
+			Header:    ptr.To(header),
 			Overwrite: ptr.To(true),
 			Credential: egv1a1.InjectedCredential{
 				ValueRef: gwapiv1.SecretObjectReference{
@@ -659,7 +633,13 @@ func (c *MCPRouteController) ensureCredentialSecret(ctx context.Context, namespa
 		}
 	}
 
-	credentialValue = fmt.Sprintf("Bearer %s", key)
+	// Only prepend the "Bearer " prefix if the header is not set or is set to "Authorization".
+	header := cmp.Or(ptr.Deref(apiKey.Header, ""), "Authorization")
+	if header == "Authorization" {
+		credentialValue = fmt.Sprintf("Bearer %s", key)
+	} else {
+		credentialValue = key
+	}
 
 	existingSecret, secretErr := c.kube.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if secretErr != nil && !apierrors.IsNotFound(secretErr) {

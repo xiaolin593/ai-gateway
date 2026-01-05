@@ -7,7 +7,6 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,16 +24,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gwapiv1a2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
-	gwapiv1a3 "sigs.k8s.io/gateway-api/apis/v1alpha3"
 
 	aigv1a1 "github.com/envoyproxy/ai-gateway/api/v1alpha1"
 	"github.com/envoyproxy/ai-gateway/internal/internalapi"
+	"github.com/envoyproxy/ai-gateway/internal/json"
 )
 
 const (
 	oauthWellKnownProtectedResourceMetadataPath   = "/.well-known/oauth-protected-resource"
 	oauthWellKnownAuthorizationServerMetadataPath = "/.well-known/oauth-authorization-server"
+	oidcWellKnownMetadataPath                     = "/.well-known/openid-configuration"
 
 	oauthProtectedResourceMetadataSuffix = "-oauth-protected-resource-metadata"
 	oauthAuthServerMetadataSuffix        = "-oauth-authorization-server-metadata"
@@ -48,7 +47,8 @@ func (c *MCPRouteController) syncMCPRouteSecurityPolicy(ctx context.Context, mcp
 	securityPolicy := mcpRoute.Spec.SecurityPolicy
 	hasOAuth := securityPolicy != nil && securityPolicy.OAuth != nil
 	hasAPIKeyAuth := securityPolicy != nil && securityPolicy.APIKeyAuth != nil
-	securityPolicyConfigured := hasOAuth || hasAPIKeyAuth
+	hasExtAuth := securityPolicy != nil && securityPolicy.ExtAuth != nil
+	securityPolicyConfigured := hasOAuth || hasAPIKeyAuth || hasExtAuth
 
 	if securityPolicyConfigured {
 		// Create and manage SecurityPolicy to enforce client authentication on the MCP proxy rule.
@@ -109,6 +109,8 @@ func (c *MCPRouteController) ensureSecurityPolicy(ctx context.Context, mcpRoute 
 
 	// Configure JWT authentication to validate access tokens if OAuth is enabled.
 	if oauth := mcpRoute.Spec.SecurityPolicy.OAuth; oauth != nil {
+		c.logger.Info("Configuring OAuth in SecurityPolicy")
+
 		name := "mcp-jwt-provider"
 		jwtProvider := egv1a1.JWTProvider{
 			Name:      name,
@@ -150,7 +152,13 @@ func (c *MCPRouteController) ensureSecurityPolicy(ctx context.Context, mcpRoute 
 
 	// Configure API Key authentication if enabled.
 	if apiKeyAuth := mcpRoute.Spec.SecurityPolicy.APIKeyAuth; apiKeyAuth != nil {
+		c.logger.Info("Configuring API Key in SecurityPolicy")
 		securityPolicySpec.APIKeyAuth = apiKeyAuth.DeepCopy()
+	}
+	// Configure External Auth if set up.
+	if extAuth := mcpRoute.Spec.SecurityPolicy.ExtAuth; extAuth != nil {
+		c.logger.Info("Configuring Ext Auth in SecurityPolicy")
+		securityPolicySpec.ExtAuth = extAuth.DeepCopy()
 	}
 
 	// The SecurityPolicy should only apply to the HTTPRoute MCP proxy rule.
@@ -158,9 +166,9 @@ func (c *MCPRouteController) ensureSecurityPolicy(ctx context.Context, mcpRoute 
 	// support it yet, we currently do not set the sectionName to avoid compatibility issues.
 	// The jwt and API key auth filter will be removed from backend routes in the extension server.
 	// TODO: use sectionName to target the MCP proxy rule only when the HTTPRouteRule name is in stable channel.
-	securityPolicySpec.TargetRefs = []gwapiv1a2.LocalPolicyTargetReferenceWithSectionName{
+	securityPolicySpec.TargetRefs = []gwapiv1.LocalPolicyTargetReferenceWithSectionName{
 		{
-			LocalPolicyTargetReference: gwapiv1a2.LocalPolicyTargetReference{
+			LocalPolicyTargetReference: gwapiv1.LocalPolicyTargetReference{
 				Group: "gateway.networking.k8s.io",
 				Kind:  "HTTPRoute",
 				Name:  gwapiv1.ObjectName(httpRouteName),
@@ -226,29 +234,23 @@ func (c *MCPRouteController) ensureOAuthProtectedResourceMetadataBTP(ctx context
 				},
 				Response: &egv1a1.CustomResponse{
 					StatusCode: ptr.To(http.StatusUnauthorized),
-					Body: &egv1a1.CustomResponseBody{
-						Type:   ptr.To(egv1a1.ResponseValueTypeInline),
-						Inline: ptr.To(wwwAuthenticateValue),
-					},
-					// TODO: use Header when supported in Envoy Gateway. https://github.com/envoyproxy/gateway/pull/6308.
-					// For now, use Body to set the WWW-Authenticate header value, and we move it to Header in the extension server.
-					/*Header: &gwapiv1.HTTPHeaderFilter{
+					Header: &gwapiv1.HTTPHeaderFilter{
 						Set: []gwapiv1.HTTPHeader{
 							{
 								Name:  "WWW-Authenticate",
 								Value: wwwAuthenticateValue,
 							},
 						},
-					},*/
+					},
 				},
 			},
 		},
 	}
 
 	// Target the HTTPRoute MCP proxy rule only.
-	backendTrafficPolicy.Spec.TargetRefs = []gwapiv1a2.LocalPolicyTargetReferenceWithSectionName{
+	backendTrafficPolicy.Spec.TargetRefs = []gwapiv1.LocalPolicyTargetReferenceWithSectionName{
 		{
-			LocalPolicyTargetReference: gwapiv1a2.LocalPolicyTargetReference{
+			LocalPolicyTargetReference: gwapiv1.LocalPolicyTargetReference{
 				Group: "gateway.networking.k8s.io",
 				Kind:  "HTTPRoute",
 				Name:  gwapiv1.ObjectName(httpRouteName),
@@ -273,17 +275,18 @@ func (c *MCPRouteController) ensureOAuthProtectedResourceMetadataBTP(ctx context
 	return nil
 }
 
-// buildWWWAuthenticateHeaderValue constructs the WWW-Authenticate header value according to RFC 9728.
+// buildResourceMetadataURL constructs the OAuth protected resource metadata URL using the resource identifier.
 // References:
 // * https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization#authorization-server-location
 // * https://datatracker.ietf.org/doc/html/rfc9728#name-www-authenticate-response
-func buildWWWAuthenticateHeaderValue(metadata *aigv1a1.ProtectedResourceMetadata) string {
-	// Build resource metadata URL using RFC 8414 compliant pattern.
-	// Extract base URL and path from resource identifier.
+func buildResourceMetadataURL(metadata *aigv1a1.ProtectedResourceMetadata) string {
 	resourceURL := strings.TrimSuffix(metadata.Resource, "/")
 
-	var baseURL string
-	var prefixLen int
+	var (
+		baseURL       string
+		prefixLen     int
+		pathComponent string
+	)
 	switch {
 	case strings.HasPrefix(resourceURL, "https://"):
 		prefixLen = 8
@@ -295,19 +298,35 @@ func buildWWWAuthenticateHeaderValue(metadata *aigv1a1.ProtectedResourceMetadata
 
 	if idx := strings.Index(resourceURL[prefixLen:], "/"); idx != -1 {
 		baseURL = resourceURL[:prefixLen+idx]
+		pathComponent = resourceURL[prefixLen+idx:]
 	} else {
 		baseURL = resourceURL
 	}
 
-	// Some agents do not expect the path component to be included in the resource_metadata URL.
-	// TODO: test with different agents and see if this would cause issues.
-	// resourceMetadataURL := fmt.Sprintf("%s/.well-known/oauth-protected-resource%s", baseURL, pathComponent).
-	resourceMetadataURL := fmt.Sprintf("%s%s", baseURL, oauthWellKnownProtectedResourceMetadataPath)
+	// Some agents do not expect the path component to be included in the resource_metadata URL, but according to the
+	// spec https://mcp.mintlify.app/specification/2025-11-25/basic/authorization#protected-resource-metadata-discovery-requirements
+	// they should honor hte value returned here.
+	// We can't expose these resource at the root, because there may be multiple MCP routes with different OAuth settings, so we need
+	// to rely on clients properly implementing the spec and using this value returned in the header.
+	return fmt.Sprintf("%s%s%s", baseURL, oauthWellKnownProtectedResourceMetadataPath, pathComponent)
+}
+
+// buildWWWAuthenticateHeaderValue constructs the WWW-Authenticate header value according to RFC 9728.
+// References:
+// * https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization#authorization-server-location
+// * https://datatracker.ietf.org/doc/html/rfc9728#name-www-authenticate-response
+func buildWWWAuthenticateHeaderValue(metadata *aigv1a1.ProtectedResourceMetadata) string {
+	resourceMetadataURL := buildResourceMetadataURL(metadata)
 	// Build the basic Bearer challenge.
 	headerValue := `Bearer error="invalid_request", error_description="No access token was provided in this request"`
 
 	// Add resource_metadata as per RFC 9728 Section 5.1.
 	headerValue = fmt.Sprintf(`%s, resource_metadata="%s"`, headerValue, resourceMetadataURL)
+
+	if len(metadata.ScopesSupported) > 0 {
+		// Add scope as per RFC 6750 Section 3.
+		headerValue = fmt.Sprintf(`%s, scope="%s"`, headerValue, strings.Join(metadata.ScopesSupported, " "))
+	}
 
 	return headerValue
 }
@@ -473,7 +492,7 @@ func (c *MCPRouteController) buildOAuthAuthServerMetadataJSON(oauth *aigv1a1.MCP
 
 	// Try to fetch metadata from the well-known endpoint first.
 	if authServer != "" {
-		fetchedMetadata, err := fetchOAuthAuthServerMetadata(authServer)
+		fetchedMetadata, err := fetchOAuthAuthServerMetadata(authServer, maxRetryElapsedTime)
 		if err == nil && fetchedMetadata != nil {
 			// Convert to JSON string and return.
 			jsonBytes, _ := json.Marshal(fetchedMetadata)
@@ -614,19 +633,23 @@ type OAuthAuthServerMetadata struct {
 	CodeChallengeMethodsSupported                      []string `json:"code_challenge_methods_supported,omitempty"`
 }
 
+// httpError represents an HTTP error with status code and status message.
+type httpError struct {
+	statusCode int
+	status     string
+}
+
+func (h *httpError) Error() string { return fmt.Sprintf("HTTP %d %s", h.statusCode, h.status) }
+
 // fetchOAuthAuthServerMetadata fetches OAuth authorization server metadata from the well-known endpoint
 // with exponential backoff retry logic. It returns the fetched metadata or an error if all attempts fail.
-func fetchOAuthAuthServerMetadata(authServer string) (*OAuthAuthServerMetadata, error) {
-	httpClient := &http.Client{Timeout: httpClientTimeout}
-	wellKnownURL := strings.TrimSuffix(authServer, "/") + oauthWellKnownAuthorizationServerMetadataPath
+func fetchOAuthAuthServerMetadata(authServer string, maxRetryElapsedTime time.Duration) (*OAuthAuthServerMetadata, error) {
+	var (
+		metadata   OAuthAuthServerMetadata
+		httpClient = &http.Client{Timeout: httpClientTimeout}
+	)
 
-	var metadata OAuthAuthServerMetadata
-
-	// Configure exponential backoff.
-	b := backoff.NewExponentialBackOff()
-	b.MaxElapsedTime = maxRetryElapsedTime
-
-	operation := func() error {
+	operation := func(wellKnownURL string) error {
 		resp, err := httpClient.Get(wellKnownURL)
 		if err != nil {
 			urlError, dnsError := &url.Error{}, &net.DNSError{}
@@ -645,10 +668,10 @@ func fetchOAuthAuthServerMetadata(authServer string) (*OAuthAuthServerMetadata, 
 		if resp.StatusCode != http.StatusOK {
 			// Retry on 5xx server errors, but not on 4xx client errors.
 			if resp.StatusCode >= 500 && resp.StatusCode < 600 {
-				return fmt.Errorf("HTTP %d %s", resp.StatusCode, resp.Status)
+				return &httpError{statusCode: resp.StatusCode, status: resp.Status}
 			}
 			// 4xx errors are permanent, don't retry.
-			return backoff.Permanent(fmt.Errorf("HTTP %d %s", resp.StatusCode, resp.Status))
+			return backoff.Permanent(&httpError{statusCode: resp.StatusCode, status: resp.Status})
 		}
 
 		// Read and parse the response body.
@@ -665,10 +688,65 @@ func fetchOAuthAuthServerMetadata(authServer string) (*OAuthAuthServerMetadata, 
 		return nil
 	}
 
-	if err := backoff.Retry(operation, b); err != nil {
-		return nil, err
+	authServerURL, err := url.Parse(authServer)
+	if err != nil {
+		return nil, fmt.Errorf("invalid authorization server URL: %w", err)
 	}
-	return &metadata, nil
+
+	// Build the well-known URL according to the spec: https://datatracker.ietf.org/doc/html/rfc8414#section-3
+	// Some providers like Descope do not honor the spec and put the well-known endpoint
+	// after the issuer path, so we try a set of variants to maximize compatibility.
+	// See: https://modelcontextprotocol.io/specification/draft/basic/authorization#authorization-server-metadata-discovery
+	wellKnownURLVariants := []string{
+		fmt.Sprintf("%s://%s%s%s",
+			authServerURL.Scheme,
+			authServerURL.Host,
+			oauthWellKnownAuthorizationServerMetadataPath,
+			strings.TrimSuffix(authServerURL.Path, "/"),
+		),
+		fmt.Sprintf("%s://%s%s%s",
+			authServerURL.Scheme,
+			authServerURL.Host,
+			oidcWellKnownMetadataPath,
+			strings.TrimSuffix(authServerURL.Path, "/"),
+		),
+		fmt.Sprintf("%s://%s%s%s",
+			authServerURL.Scheme,
+			authServerURL.Host,
+			strings.TrimSuffix(authServerURL.Path, "/"),
+			oauthWellKnownAuthorizationServerMetadataPath,
+		),
+		fmt.Sprintf("%s://%s%s%s",
+			authServerURL.Scheme,
+			authServerURL.Host,
+			strings.TrimSuffix(authServerURL.Path, "/"),
+			oidcWellKnownMetadataPath,
+		),
+	}
+
+	for _, wellKnownURL := range wellKnownURLVariants {
+		b := backoff.NewExponentialBackOff()
+		b.MaxElapsedTime = maxRetryElapsedTime
+		err = backoff.Retry(func() error {
+			return operation(wellKnownURL)
+		}, b)
+
+		var httpErr *httpError
+		switch {
+		case errors.As(err, &httpErr) && httpErr.statusCode >= 400 && httpErr.statusCode < 500:
+			// If it is a 4xx error, try the next URL variant instead of retrying or failing
+			continue
+		case err != nil:
+			// Other errors, return immediately as the backoff time is exhausted.
+			return nil, err
+		default: // Success
+			return &metadata, nil
+		}
+	}
+
+	// We can only get here if the backoff failed and there were no more URLs to try.
+	// Return the last failure.
+	return nil, err
 }
 
 func oauthProtectedResourceMetadataName(mcpRouteName string) string {
@@ -683,7 +761,7 @@ func oauthAuthServerMetadataFilterName(mcpRouteName string) string {
 // It fetches the well-known metadata endpoint and extracts the jwks_uri field.
 func (c *MCPRouteController) discoverJWKSURI(issuer string) (string, error) {
 	// Fetch OAuth authorization server metadata.
-	metadata, err := fetchOAuthAuthServerMetadata(issuer)
+	metadata, err := fetchOAuthAuthServerMetadata(issuer, maxRetryElapsedTime)
 	switch {
 	case err != nil:
 		return "", fmt.Errorf("failed to fetch authorization server metadata: %w", err)
@@ -696,7 +774,7 @@ func (c *MCPRouteController) discoverJWKSURI(issuer string) (string, error) {
 
 // tryGetBackendsForJWKS attempts to find a BackendCluster that can reach the given JWKS URL.
 func (c *MCPRouteController) tryGetBackendsForJWKS(ctx context.Context, jwksURL string) ([]egv1a1.BackendRef, error) {
-	var backendTLSPolicies gwapiv1a3.BackendTLSPolicyList
+	var backendTLSPolicies gwapiv1.BackendTLSPolicyList
 	if err := c.client.List(ctx, &backendTLSPolicies); err != nil {
 		return nil, fmt.Errorf("failed to list BackendTLSPolicy: %w", err)
 	}

@@ -4,6 +4,9 @@ title: AIGatewayRoute + InferencePool Guide
 sidebar_position: 3
 ---
 
+import CodeBlock from '@theme/CodeBlock';
+import vars from '../../\_vars.json';
+
 # AIGatewayRoute + InferencePool Guide
 
 This guide demonstrates how to use InferencePool with AIGatewayRoute for advanced AI-specific inference routing. This approach provides enhanced features like model-based routing, token rate limiting, and advanced observability.
@@ -25,15 +28,19 @@ kubectl apply -f https://github.com/kubernetes-sigs/gateway-api-inference-extens
 
 After installing InferencePool CRD, enable InferencePool support in Envoy Gateway, restart the deployment, and wait for it to be ready:
 
-```shell
-kubectl apply -f https://raw.githubusercontent.com/envoyproxy/ai-gateway/main/examples/inference-pool/config.yaml
+<CodeBlock language="shell">
+{`kubectl apply -f https://raw.githubusercontent.com/envoyproxy/ai-gateway/${vars.aigwGitRef}/examples/inference-pool/config.yaml
 
 kubectl rollout restart -n envoy-gateway-system deployment/envoy-gateway
 
-kubectl wait --timeout=2m -n envoy-gateway-system deployment/envoy-gateway --for=condition=Available
-```
+kubectl wait --timeout=2m -n envoy-gateway-system deployment/envoy-gateway --for=condition=Available`}
+</CodeBlock>
 
-## Step 2: Deploy Inference Backends
+## Step 2: Ensure Envoy Gateway is configured for InferencePool
+
+See [Envoy Gateway Installation Guide](../../getting-started/prerequisites.md#additional-features-rate-limiting-inferencepool-etc)
+
+## Step 3: Deploy Inference Backends
 
 Deploy sample inference backends and related resources:
 
@@ -50,7 +57,7 @@ kubectl apply -f https://github.com/kubernetes-sigs/gateway-api-inference-extens
 
 > **Note**: These deployments create the `vllm-llama3-8b-instruct` InferencePool and related resources that are referenced in the AIGatewayRoute configuration below.
 
-## Step 3: Create Custom InferencePool Resources
+## Step 4: Create Custom InferencePool Resources
 
 Create additional inference backends with custom EndpointPicker configuration:
 
@@ -297,7 +304,7 @@ roleRef:
 EOF
 ```
 
-## Step 4: Create AIServiceBackend for Mixed Routing
+## Step 5: Create AIServiceBackend for Mixed Routing
 
 Create an AIServiceBackend for traditional backend routing alongside InferencePool:
 
@@ -374,7 +381,7 @@ spec:
 EOF
 ```
 
-## Step 5: Configure Gateway and AIGatewayRoute
+## Step 6: Configure Gateway and AIGatewayRoute
 
 Create a Gateway and AIGatewayRoute with multiple InferencePool backends:
 
@@ -441,7 +448,7 @@ spec:
 EOF
 ```
 
-## Step 6: Test the Configuration
+## Step 7: Test the Configuration
 
 Test different model routing scenarios:
 

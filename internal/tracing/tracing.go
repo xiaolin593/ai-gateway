@@ -19,16 +19,22 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	tracing "github.com/envoyproxy/ai-gateway/internal/tracing/api"
+	"github.com/envoyproxy/ai-gateway/internal/tracing/openinference/anthropic"
+	"github.com/envoyproxy/ai-gateway/internal/tracing/openinference/cohere"
 	"github.com/envoyproxy/ai-gateway/internal/tracing/openinference/openai"
 )
 
 var _ tracing.Tracing = (*tracingImpl)(nil)
 
 type tracingImpl struct {
-	chatCompletionTracer tracing.ChatCompletionTracer
-	completionTracer     tracing.CompletionTracer
-	embeddingsTracer     tracing.EmbeddingsTracer
-	mcpTracer            tracing.MCPTracer
+	chatCompletionTracer  tracing.ChatCompletionTracer
+	completionTracer      tracing.CompletionTracer
+	imageGenerationTracer tracing.ImageGenerationTracer
+	embeddingsTracer      tracing.EmbeddingsTracer
+	responsesTracer       tracing.ResponsesTracer
+	rerankTracer          tracing.RerankTracer
+	messageTracer         tracing.MessageTracer
+	mcpTracer             tracing.MCPTracer
 	// shutdown is nil when we didn't create tp.
 	shutdown func(context.Context) error
 }
@@ -48,8 +54,29 @@ func (t *tracingImpl) EmbeddingsTracer() tracing.EmbeddingsTracer {
 	return t.embeddingsTracer
 }
 
+// ImageGenerationTracer implements the same method as documented on api.Tracing.
+func (t *tracingImpl) ImageGenerationTracer() tracing.ImageGenerationTracer {
+	return t.imageGenerationTracer
+}
+
+// ResponsesTracer implements the same method as documented on api.Tracing.
+func (t *tracingImpl) ResponsesTracer() tracing.ResponsesTracer {
+	return t.responsesTracer
+}
+
+// RerankTracer implements the same method as documented on api.Tracing.
+func (t *tracingImpl) RerankTracer() tracing.RerankTracer {
+	return t.rerankTracer
+}
+
+// MCPTracer implements the same method as documented on api.Tracing.
 func (t *tracingImpl) MCPTracer() tracing.MCPTracer {
 	return t.mcpTracer
+}
+
+// MessageTracer implements the same method as documented on api.Tracing.
+func (t *tracingImpl) MessageTracer() tracing.MessageTracer {
+	return t.messageTracer
 }
 
 // Shutdown implements the same method as documented on api.Tracing.
@@ -156,8 +183,12 @@ func NewTracingFromEnv(ctx context.Context, stdout io.Writer, headerAttributeMap
 
 	// Default to OpenInference trace span semantic conventions.
 	chatRecorder := openai.NewChatCompletionRecorderFromEnv()
+	imageRecorder := openai.NewImageGenerationRecorderFromEnv()
 	completionRecorder := openai.NewCompletionRecorderFromEnv()
 	embeddingsRecorder := openai.NewEmbeddingsRecorderFromEnv()
+	responsesRecorder := openai.NewResponsesRecorderFromEnv()
+	rerankRecorder := cohere.NewRerankRecorderFromEnv()
+	messageRecorder := anthropic.NewMessageRecorderFromEnv()
 
 	tracer := tp.Tracer("envoyproxy/ai-gateway")
 	return &tracingImpl{
@@ -166,6 +197,11 @@ func NewTracingFromEnv(ctx context.Context, stdout io.Writer, headerAttributeMap
 			propagator,
 			chatRecorder,
 			headerAttrs,
+		),
+		imageGenerationTracer: newImageGenerationTracer(
+			tracer,
+			propagator,
+			imageRecorder,
 		),
 		completionTracer: newCompletionTracer(
 			tracer,
@@ -179,14 +215,25 @@ func NewTracingFromEnv(ctx context.Context, stdout io.Writer, headerAttributeMap
 			embeddingsRecorder,
 			headerAttrs,
 		),
+		responsesTracer: newResponsesTracer(
+			tracer,
+			propagator,
+			responsesRecorder,
+			headerAttrs,
+		),
+		rerankTracer: newRerankTracer(
+			tracer,
+			propagator,
+			rerankRecorder,
+			headerAttrs,
+		),
+		messageTracer: newMessageTracer(
+			tracer,
+			propagator,
+			messageRecorder,
+			headerAttrs,
+		),
 		mcpTracer: newMCPTracer(tracer, propagator, headerAttrs),
 		shutdown:  tp.Shutdown, // we have to shut down what we create.
 	}, nil
 }
-
-type Shutdown interface {
-	Shutdown(context.Context) error
-}
-type noopShutdown struct{}
-
-func (noopShutdown) Shutdown(context.Context) error { return nil }

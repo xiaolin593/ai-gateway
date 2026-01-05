@@ -24,21 +24,28 @@ const (
 	genaiAttributeTokenType     = "gen_ai.token.type" //nolint:gosec // metric name, not credential
 	genaiAttributeErrorType     = "error.type"
 
-	genaiOperationChat       = "chat"
-	genaiOperationCompletion = "completion"
-	genaiOperationEmbedding  = "embeddings"
-	genaiOperationMessages   = "messages"
-	genaiProviderOpenAI      = "openai"
-	genaiProviderAWSBedrock  = "aws.bedrock"
-	genaiTokenTypeInput      = "input"
-	genaiTokenTypeOutput     = "output"
+	GenAIOperationChat            GenAIOperation = "chat"
+	GenAIOperationCompletion      GenAIOperation = "completion"
+	GenAIOperationEmbedding       GenAIOperation = "embeddings"
+	GenAIOperationMessages        GenAIOperation = "messages"
+	GenAIOperationImageGeneration GenAIOperation = "image_generation"
+	GenAIOperationResponses       GenAIOperation = "responses"
+	GenAIOperationRerank          GenAIOperation = "rerank"
+	genaiProviderOpenAI                          = "openai"
+	genaiProviderAWSBedrock                      = "aws.bedrock"
+	genaiTokenTypeInput                          = "input"
+	genaiTokenTypeOutput                         = "output"
 	// "cached_input" is not yet part of the spec but has been proposed:
 	// https://github.com/open-telemetry/semantic-conventions/issues/1959
 	//
 	// However, the spec says "a custom value MAY be used.", so we can use it now.
-	genaiTokenTypeCachedInput = "cached_input"
-	genaiErrorTypeFallback    = "_OTHER"
+	genaiTokenTypeCachedInput        = "cached_input"
+	genaiTokenTypeCacheCreationInput = "cache_creation_input"
+	genaiErrorTypeFallback           = "_OTHER"
 )
+
+// GenAIOperation represents the type of generative AI operation i.e. the endpoint being called.
+type GenAIOperation string
 
 // genAI holds metrics according to the Semantic Conventions for Generative AI Metrics.
 // See: https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/.

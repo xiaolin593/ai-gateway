@@ -21,11 +21,10 @@ var configTemplate string
 // Backend represents a network backend endpoint (OpenAI or MCP server).
 // Backends are rendered as Kubernetes Backend resources with optional TLS policy.
 type Backend struct {
-	Name             string // Backend resource name (e.g., "openai", "github")
-	Hostname         string // Hostname for Backend endpoint (modified from "localhost"/"127.0.0.1" to "127.0.0.1.nip.io" for Docker/K8s compatibility)
-	OriginalHostname string // Original unmodified hostname for TLS certificate validation (e.g., "localhost" when Hostname is "127.0.0.1.nip.io")
-	Port             int    // Port number
-	NeedsTLS         bool   // Whether to generate BackendTLSPolicy resource
+	Name     string // Backend resource name (e.g., "openai", "github")
+	Hostname string // Hostname for Backend endpoint
+	Port     int    // Port number
+	NeedsTLS bool   // Whether to generate BackendTLSPolicy resource
 }
 
 // OpenAIConfig holds OpenAI-specific configuration for generating AIServiceBackend resources.
@@ -36,6 +35,14 @@ type OpenAIConfig struct {
 	Version        string // API version (OpenAI path prefix or Azure query param version)
 	OrganizationID string // Optional OpenAI-Organization header value
 	ProjectID      string // Optional OpenAI-Project header value
+}
+
+// AnthropicConfig holds Anthropic-specific configuration for generating AIServiceBackend resources.
+// This is nil when no Anthropic configuration is present.
+type AnthropicConfig struct {
+	BackendName string // References a Backend.Name (typically "anthropic")
+	SchemaName  string // Schema name: "Anthropic"
+	Version     string // API version (Anthropic path prefix)
 }
 
 // MCPBackendRef references a backend with MCP-specific routing configuration.
@@ -49,13 +56,14 @@ type MCPBackendRef struct {
 }
 
 // ConfigData holds all template data for generating the AI Gateway configuration.
-// It supports OpenAI-only, MCP-only, or combined OpenAI+MCP configurations.
+// It supports OpenAI-only, Anthropic-only, MCP-only, or combined configurations.
 type ConfigData struct {
-	Backends       []Backend       // All backend endpoints (unified - includes OpenAI and MCP backends)
-	OpenAI         *OpenAIConfig   // OpenAI-specific configuration (nil for MCP-only mode)
-	MCPBackendRefs []MCPBackendRef // MCP routing configuration (nil/empty for OpenAI-only mode)
-	Debug          bool            // Enable debug logging for Envoy (includes component-level logging for ext_proc, http, connection)
-	EnvoyVersion   string          // Explicitly configure the version of Envoy to use.
+	Backends       []Backend        // All backend endpoints (unified - includes OpenAI, Anthropic, and MCP backends)
+	OpenAI         *OpenAIConfig    // OpenAI-specific configuration (nil when not present)
+	Anthropic      *AnthropicConfig // Anthropic-specific configuration (nil when not present)
+	MCPBackendRefs []MCPBackendRef  // MCP routing configuration (nil/empty for OpenAI-only or Anthropic-only mode)
+	Debug          bool             // Enable debug logging for Envoy (includes component-level logging for ext_proc, http, connection)
+	EnvoyVersion   string           // Explicitly configure the version of Envoy to use.
 }
 
 // WriteConfig generates the AI Gateway configuration.
@@ -74,32 +82,25 @@ func WriteConfig(data *ConfigData) (string, error) {
 	return buf.String(), nil
 }
 
-// parsedURL holds parsed URL components for creating Backend and OpenAIConfig.
+// parsedURL holds parsed URL components for creating Backend, OpenAIConfig, and AnthropicConfig.
 type parsedURL struct {
-	hostname         string
-	originalHostname string
-	port             int
-	version          string
-	needsTLS         bool
+	hostname string
+	port     int
+	version  string
+	needsTLS bool
 }
 
 // parseURL extracts hostname, port, and version from the base URL.
 func parseURL(baseURL string) (*parsedURL, error) {
 	u, err := url.Parse(baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid OPENAI_BASE_URL: %w", err)
+		return nil, fmt.Errorf("invalid base URL: %w", err)
 	}
 
 	// Extract hostname
 	hostname := u.Hostname()
 	if hostname == "" {
-		return nil, fmt.Errorf("invalid OPENAI_BASE_URL: missing hostname")
-	}
-	originalHostname := hostname
-
-	// Convert localhost/127.0.0.1 to nip.io for Docker/K8s compatibility
-	if hostname == "localhost" || hostname == "127.0.0.1" {
-		hostname = "127.0.0.1.nip.io"
+		return nil, fmt.Errorf("invalid base URL: missing hostname")
 	}
 
 	// Determine port
@@ -112,13 +113,13 @@ func parseURL(baseURL string) (*parsedURL, error) {
 		case "http":
 			port = 80
 		default:
-			return nil, fmt.Errorf("invalid OPENAI_BASE_URL: unsupported scheme %q", u.Scheme)
+			return nil, fmt.Errorf("invalid base URL: unsupported scheme %q", u.Scheme)
 		}
 	} else {
 		var err error
 		port, err = strconv.Atoi(portStr)
 		if err != nil {
-			return nil, fmt.Errorf("invalid port in OPENAI_BASE_URL: %w", err)
+			return nil, fmt.Errorf("invalid port in base URL: %w", err)
 		}
 	}
 
@@ -131,10 +132,9 @@ func parseURL(baseURL string) (*parsedURL, error) {
 	}
 
 	return &parsedURL{
-		hostname:         hostname,
-		originalHostname: originalHostname,
-		port:             port,
-		version:          version,
-		needsTLS:         u.Scheme == "https",
+		hostname: hostname,
+		port:     port,
+		version:  version,
+		needsTLS: u.Scheme == "https",
 	}, nil
 }

@@ -10,8 +10,7 @@ First of all, there are only three minimal prerequisites to contribute to the pr
 - `make`
 - `docker`
 
-which we assume you already have installed on your machine. Also, on macOS, you would need to install
-`brew install ca-certificates` to run some integration tests.
+which we assume you already have installed on your machine.
 
 Assuming you have already cloned the repository on a local machine either macOS or some Linux distribution,
 the only make targets you would need to run are listed via
@@ -43,20 +42,46 @@ For example,
 
 - The latest `kubectl` binary for running `make test-e2e`.
   - See: https://kubernetes.io/docs/tasks/tools/
-- The latest `envoy` binary for running `make test-extproc`. The current required version is v1.35 or later.
-  - On Linux, you can download the latest Envoy binary as described in https://www.envoyproxy.io/docs/envoy/latest/start/install.
-    Alternatively, you can use `func-e` on Linux as well like on macOS below.
-  - On macOS, since `brew envoy` tends to behind the latest version, it is recommended use `func-e` to run the latest Envoy. See https://func-e.io/.
-  - `alias envoy='func-e run'` is a convenient way to run the latest Envoy binary via `func-e` on both macOS and Linux.
-    For example, `func-e use 1.34` can be used to switch to a specific version of Envoy to be run with `func-e run`.
 
 Other than that, everything will be automatically managed and installed via `make` targets,
 and you should not need to worry about the dependencies (tell us if you do).
 
-Additionally, some of the test cases in `test-e2e` and `test-extproc` might require some credentials.
+Additionally, some of the test cases in `test-e2e` and `test-data-plane` might require some credentials.
 You will find which credentials are required in the output of the test command. All test cases requiring
 credentials are skipped by default when the credentials are not provided. If you
 want to run these tests locally, please prepare the necessary credentials by yourself.
+
+## Use of generative AI policy
+
+### Goals
+
+- Keep Envoy AI Gateway code consistent and high-quality.
+- Save reviewers time. Reviewers are often in short supply and time, so try to avoid wasted time.
+
+### What is allowed
+
+Use of generative AI to assist in writing code or tests, as long as the submitter fully understands
+the code being submitted.
+
+All of the following are required:
+
+- You understand the change you are submitting.
+- You respond to questions and comments from the reviewer. If you use generative AI to help in your
+  responses, you are required to edit and proof read the AI-generated responses, and ensure it is
+  a reasonable response to the question or issue raised.
+- You are able to revise the AI-generated code if requested by the reviewer. You are responsible for
+  ensuring issues are addressed, even if your AI assistant is unable.
+- You are transparent about your AI usage. It is often helpful to a reviewer to know that an AI tool
+  was used; please include that information in the PR description.
+- All generated code must be released under the same [license](LICENSE) as Envoy. You are responsible
+  for ensuring that the tools you use to generate code do not add any additional licensing restrictions.
+
+### What is not allowed
+
+- PRs which the submitter does not understand or take full ownership of.
+- Code comments should be valuable to the codebase. Any comments which only help the AI interact with
+  the code must be removed before the PR is submitted. Comments which explain what straightforward code
+  does are not useful.
 
 ## Opening a Pull Request
 

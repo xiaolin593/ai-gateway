@@ -6,14 +6,16 @@
 package testopenai
 
 import (
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/envoyproxy/ai-gateway/internal/json"
 )
 
 type cassetteTestCase[R any] struct {
@@ -27,7 +29,12 @@ func testNewRequest[R any](t *testing.T, tests []cassetteTestCase[R]) {
 	// documented way to backfill cassettes.
 	server, err := NewServer(os.Stdout, 0)
 	require.NoError(t, err)
-	defer server.Close()
+	defer func() {
+		// This sleep is required to wait until large cassettes are recorded.
+		// Remove this sleep when there is a proper way to wait for cassettes to be recorded.
+		<-time.After(5 * time.Second)
+		server.Close()
+	}()
 
 	baseURL := server.URL()
 

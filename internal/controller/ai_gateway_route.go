@@ -43,6 +43,9 @@ const (
 	egOwningGatewayNamespaceLabel                      = egAnnotationPrefix + "owning-gateway-namespace"
 	// apiKeyInSecret is the key to store OpenAI API key.
 	apiKeyInSecret = "apiKey"
+	// GatewayConfigAnnotationKey is the annotation key used on Gateway objects to reference a GatewayConfig.
+	// The value should be the name of the GatewayConfig resource in the same namespace as the Gateway.
+	GatewayConfigAnnotationKey = "aigateway.envoyproxy.io/gateway-config"
 )
 
 // AIGatewayRouteController implements [reconcile.TypedReconciler].
@@ -146,7 +149,7 @@ func generateHTTPRouteFilters(aiGatewayRoute *aigv1a1.AIGatewayRoute) []*egv1a1.
 					Body: &egv1a1.CustomResponseBody{
 						Inline: ptr.To(
 							// "Likely" since the matching rule can be arbitrary, not necessarily matching on the model name.
-							`No matching route found. It is likely that the model specified your request is not configured in the Gateway.`,
+							`No matching route found. It is likely because the model specified in your request is not configured in the Gateway.`,
 						),
 					},
 				},

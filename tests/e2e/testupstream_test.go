@@ -29,7 +29,7 @@ func TestWithTestUpstream(t *testing.T) {
 	const manifest = "testdata/testupstream.yaml"
 	require.NoError(t, e2elib.KubectlApplyManifest(t.Context(), manifest))
 	t.Cleanup(func() {
-		_ = e2elib.KubectlDeleteManifest(t.Context(), manifest)
+		_ = e2elib.KubectlDeleteManifest(context.Background(), manifest)
 	})
 
 	const egSelector = "gateway.envoyproxy.io/owning-gateway-name=translation-testupstream"
@@ -83,7 +83,7 @@ func TestWithTestUpstream(t *testing.T) {
 				name:            "openai",
 				modelName:       "non-existent-model",
 				expStatus:       404,
-				expResponseBody: `No matching route found. It is likely that the model specified your request is not configured in the Gateway.`,
+				expResponseBody: `No matching route found. It is likely because the model specified in your request is not configured in the Gateway.`,
 			},
 			{
 				name:               "openai-header-mutation",
@@ -185,7 +185,7 @@ func TestWithTestUpstream(t *testing.T) {
 	// This is a regression test that ensures that stream=true requests are processed in a streaming manner.
 	// https://github.com/envoyproxy/ai-gateway/pull/1026
 	//
-	// We have almost identical test in the tests/extproc.
+	// We have almost identical test in the tests/data-plane.
 	t.Run("stream non blocking", func(t *testing.T) {
 		fwd := e2elib.RequireNewHTTPPortForwarder(t, e2elib.EnvoyGatewayNamespace, egSelector, e2elib.EnvoyGatewayDefaultServicePort)
 		defer fwd.Kill()
