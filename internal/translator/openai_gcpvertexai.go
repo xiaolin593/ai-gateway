@@ -248,7 +248,7 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) handleStreamingResponse(
 
 	if endOfStream {
 		// Add the [DONE] marker to indicate end of stream as per OpenAI API specification.
-		newBody = append(newBody, []byte("data: [DONE]\n")...)
+		newBody = append(newBody, sseDoneFullLine...)
 	}
 	return
 }
@@ -290,7 +290,7 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) parseGCPStreamingChunks(
 		}
 
 		// Remove "data: " prefix from SSE format if present.
-		line := bytes.TrimPrefix(part, []byte("data: "))
+		line := bytes.TrimPrefix(part, sseDataPrefix)
 
 		// Try to parse as JSON.
 		var chunk genai.GenerateContentResponse
