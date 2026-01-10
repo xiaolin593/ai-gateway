@@ -427,6 +427,7 @@ func TestOpenAIToAWSBedrockTranslatorV1ChatCompletion_RequestBody(t *testing.T) 
 				Model:       "gpt-4o",
 				MaxTokens:   ptr.To(int64(10)),
 				TopP:        ptr.To(float64(1)),
+				ServiceTier: "reserved",
 				Temperature: ptr.To(0.7),
 				Messages: []openai.ChatCompletionMessageParamUnion{
 					{
@@ -468,6 +469,7 @@ func TestOpenAIToAWSBedrockTranslatorV1ChatCompletion_RequestBody(t *testing.T) 
 					TopP:        ptr.To(float64(1)),
 					Temperature: ptr.To(0.7),
 				},
+				ServiceTier: &awsbedrock.ServiceTier{Type: "reserved"},
 				Messages: []*awsbedrock.Message{
 					{
 						Role: openai.ChatMessageRoleUser,
@@ -509,7 +511,8 @@ func TestOpenAIToAWSBedrockTranslatorV1ChatCompletion_RequestBody(t *testing.T) 
 		{
 			name: "test auto tool choice",
 			input: openai.ChatCompletionRequest{
-				Model: "gpt-4o",
+				Model:       "gpt-4o",
+				ServiceTier: "default",
 				Messages: []openai.ChatCompletionMessageParamUnion{
 					{
 						OfUser: &openai.ChatCompletionUserMessageParam{
@@ -533,6 +536,7 @@ func TestOpenAIToAWSBedrockTranslatorV1ChatCompletion_RequestBody(t *testing.T) 
 			},
 			output: awsbedrock.ConverseInput{
 				InferenceConfig: &awsbedrock.InferenceConfiguration{},
+				ServiceTier:     &awsbedrock.ServiceTier{Type: "default"},
 				Messages: []*awsbedrock.Message{
 					{
 						Role: openai.ChatMessageRoleUser,
@@ -1473,6 +1477,7 @@ func TestOpenAIToAWSBedrockTranslatorV1ChatCompletion_ResponseBody(t *testing.T)
 					CacheWriteInputTokens: ptr.To[int64](7),
 					CacheReadInputTokens:  ptr.To[int64](5),
 				},
+				ServiceTier: &awsbedrock.ServiceTier{Type: "default"},
 				Output: &awsbedrock.ConverseOutput{
 					Message: awsbedrock.Message{
 						Role: "assistant",
@@ -1485,10 +1490,11 @@ func TestOpenAIToAWSBedrockTranslatorV1ChatCompletion_ResponseBody(t *testing.T)
 				},
 			},
 			output: openai.ChatCompletionResponse{
-				ID:      "123",
-				Model:   "claude-sonnet-4",
-				Created: openai.JSONUNIXTime(time.Unix(releaseDateUnix, 0)),
-				Object:  "chat.completion",
+				ID:          "123",
+				Model:       "claude-sonnet-4",
+				Created:     openai.JSONUNIXTime(time.Unix(releaseDateUnix, 0)),
+				Object:      "chat.completion",
+				ServiceTier: "default",
 				Usage: openai.Usage{
 					TotalTokens:      42,
 					PromptTokens:     22,
@@ -1518,7 +1524,8 @@ func TestOpenAIToAWSBedrockTranslatorV1ChatCompletion_ResponseBody(t *testing.T)
 					OutputTokens: 20,
 					TotalTokens:  30,
 				},
-				StopReason: ptr.To("stop_sequence"),
+				ServiceTier: &awsbedrock.ServiceTier{Type: "reserved"},
+				StopReason:  ptr.To("stop_sequence"),
 				Output: &awsbedrock.ConverseOutput{
 					Message: awsbedrock.Message{
 						Role: awsbedrock.ConversationRoleAssistant,
@@ -1538,6 +1545,7 @@ func TestOpenAIToAWSBedrockTranslatorV1ChatCompletion_ResponseBody(t *testing.T)
 					PromptTokens:     10,
 					CompletionTokens: 20,
 				},
+				ServiceTier: "reserved",
 				Choices: []openai.ChatCompletionResponseChoice{
 					{
 						Index:        0,
