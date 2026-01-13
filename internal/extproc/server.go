@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -86,15 +87,40 @@ func (s *Server) processorForPath(requestHeaders map[string]string, isUpstreamFi
 	}
 	path := requestHeaders[pathHeader]
 
+	// If upstream filter and originalPath is empty, fall back to :path
+	if isUpstreamFilter && path == "" {
+		path = requestHeaders[":path"]
+		fmt.Fprintf(os.Stderr, "DEBUG: originalPathHeader empty, falling back to :path=%s\n", path)
+	}
+
 	// Strip query parameters for processor lookup.
 	if queryIndex := strings.Index(path, "?"); queryIndex != -1 {
 		path = path[:queryIndex]
 	}
 
+	fmt.Fprintf(os.Stderr, "DEBUG: processorForPath lookup: path=%s isUpstreamFilter=%v\n", path, isUpstreamFilter)
+	fmt.Fprintf(os.Stderr, "DEBUG: registered paths: %v\n", func() []string {
+		paths := make([]string, 0, len(s.processorFactories))
+		for p := range s.processorFactories {
+			paths = append(paths, p)
+		}
+		return paths
+	}())
+
+	// Try exact match first
 	newProcessor, ok := s.processorFactories[path]
 	if !ok {
+		// For paths like /v1/batches/{id} or /v1/files/{id}, try prefix matching
+		for registeredPath, factory := range s.processorFactories {
+			if strings.HasPrefix(path, registeredPath+"/") {
+				fmt.Fprintf(os.Stderr, "DEBUG: processor FOUND via prefix match: %s matches %s\n", path, registeredPath)
+				return factory(s.config, requestHeaders, s.logger, isUpstreamFilter)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "DEBUG: processor NOT FOUND for path=%s\n", path)
 		return nil, fmt.Errorf("%w: %s", errNoProcessor, path)
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: processor FOUND via exact match\n")
 	return newProcessor(s.config, requestHeaders, s.logger, isUpstreamFilter)
 }
 

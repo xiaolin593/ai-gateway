@@ -2671,3 +2671,190 @@ type ResponseCompletedEvent struct {
 
 // ResponseStreamEventUnion contains all possible properties and values for response events
 type ResponseStreamEventUnion = responses.ResponseStreamEventUnion
+
+// ===== Files API =====
+
+// FileObject represents a file uploaded to OpenAI.
+type FileObject struct {
+	// The file identifier, which can be referenced in the API endpoints.
+	ID string `json:"id"`
+	// The object type, which is always "file".
+	Object string `json:"object"`
+	// The file size in bytes.
+	Bytes int `json:"bytes"`
+	// The Unix timestamp (in seconds) for when the file was created.
+	CreatedAt int64 `json:"created_at"`
+	// The name of the file.
+	Filename string `json:"filename"`
+	// The intended purpose of the file. Currently, only "batch" is supported.
+	Purpose string `json:"purpose"`
+	// Deprecated. The current status of the file, which can be either "uploaded", "processed", or "error".
+	Status string `json:"status"`
+	// Deprecated. For details on why a file failed, if applicable.
+	StatusDetails *string `json:"status_details"`
+	// The Unix timestamp (in seconds) for when the file was last updated.
+	ExpiresAt *int64 `json:"expires_at"`
+}
+
+// FileListResponse represents the response structure for listing files.
+type FileListResponse struct {
+	// The object type, which is always "list".
+	Object string `json:"object"`
+	// The list of files.
+	Data []FileObject `json:"data"`
+}
+
+// ===== Batches API =====
+
+// BatchRequest represents the request structure for creating a batch.
+type BatchRequest struct {
+	// The ID of the input file for the batch.
+	InputFileID string `json:"input_file_id"`
+	// The endpoint to be used for all requests in the batch. Currently only "/v1/chat/completions" is supported.
+	Endpoint string `json:"endpoint"`
+	// The time frame within which the batch should be processed. Currently only "24h" is supported.
+	CompletionWindow string `json:"completion_window"`
+	// Set of 16 key-value pairs that can be attached to a batch. This can be useful for storing additional information about the batch in a structured format.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// BatchRequestCounts tracks the number of requests in different states.
+type BatchRequestCounts struct {
+	// Total number of requests in the batch.
+	Total int `json:"total"`
+	// Number of completed requests.
+	Completed int `json:"completed"`
+	// Number of failed requests.
+	Failed int `json:"failed"`
+}
+
+// BatchTokensDetails contains token usage details for input.
+type BatchTokensDetails struct {
+	// Number of cached tokens.
+	CachedTokens int `json:"cached_tokens"`
+}
+
+// BatchOutputTokensDetails contains token usage details for output.
+type BatchOutputTokensDetails struct {
+	// Number of reasoning tokens.
+	ReasoningTokens int `json:"reasoning_tokens"`
+}
+
+// BatchUsage contains token usage information for the batch.
+type BatchUsage struct {
+	// Number of input tokens used.
+	InputTokens int `json:"input_tokens"`
+	// Number of output tokens used.
+	OutputTokens int `json:"output_tokens"`
+	// Total number of tokens used.
+	TotalTokens int `json:"total_tokens"`
+	// Details about input token usage.
+	InputTokensDetails BatchTokensDetails `json:"input_tokens_details"`
+	// Details about output token usage.
+	OutputTokensDetails BatchOutputTokensDetails `json:"output_tokens_details"`
+}
+
+// BatchObject represents a batch job.
+type BatchObject struct {
+	// The batch identifier.
+	ID string `json:"id"`
+	// The object type, which is always "batch".
+	Object string `json:"object"`
+	// The endpoint being used for all requests in the batch.
+	Endpoint string `json:"endpoint"`
+	// The model being used for all requests in the batch.
+	Model *string `json:"model"`
+	// Errors from the batch processing, if any.
+	Errors interface{} `json:"errors"`
+	// The ID of the input file for the batch.
+	InputFileID string `json:"input_file_id"`
+	// The time frame within which the batch should be processed.
+	CompletionWindow string `json:"completion_window"`
+	// The current status of the batch.
+	// One of: validating, failed, in_progress, finalizing, completed, expired, cancelling, cancelled.
+	Status string `json:"status"`
+	// The ID of the file containing the outputs of successfully executed requests.
+	OutputFileID *string `json:"output_file_id"`
+	// The ID of the file containing the outputs of requests with errors.
+	ErrorFileID *string `json:"error_file_id"`
+	// The Unix timestamp (in seconds) for when the batch was created.
+	CreatedAt int64 `json:"created_at"`
+	// The Unix timestamp (in seconds) for when the batch started processing.
+	InProgressAt *int64 `json:"in_progress_at"`
+	// The Unix timestamp (in seconds) for when the batch will expire.
+	ExpiresAt int64 `json:"expires_at"`
+	// The Unix timestamp (in seconds) for when the batch started finalizing.
+	FinalizingAt *int64 `json:"finalizing_at"`
+	// The Unix timestamp (in seconds) for when the batch was completed.
+	CompletedAt *int64 `json:"completed_at"`
+	// The Unix timestamp (in seconds) for when the batch failed.
+	FailedAt *int64 `json:"failed_at"`
+	// The Unix timestamp (in seconds) for when the batch expired.
+	ExpiredAt *int64 `json:"expired_at"`
+	// The Unix timestamp (in seconds) for when the batch started cancelling.
+	CancellingAt *int64 `json:"cancelling_at"`
+	// The Unix timestamp (in seconds) for when the batch was cancelled.
+	CancelledAt *int64 `json:"cancelled_at"`
+	// The request counts for the batch.
+	RequestCounts BatchRequestCounts `json:"request_counts"`
+	// Token usage information for the batch.
+	Usage BatchUsage `json:"usage"`
+	// Set of 16 key-value pairs that can be attached to a batch.
+	Metadata map[string]interface{} `json:"metadata"`
+}
+
+// BatchListResponse represents the response structure for listing batches.
+type BatchListResponse struct {
+	// The object type, which is always "list".
+	Object string `json:"object"`
+	// The list of batches.
+	Data []BatchObject `json:"data"`
+	// The first batch ID in the list.
+	FirstID *string `json:"first_id"`
+	// The last batch ID in the list.
+	LastID *string `json:"last_id"`
+	// Whether there are more batches available.
+	HasMore bool `json:"has_more"`
+}
+
+// BatchRequestItem represents a single request in a batch input file.
+type BatchRequestItem struct {
+	// A developer-provided per-request ID that will be returned with the response.
+	CustomID string `json:"custom_id"`
+	// The HTTP method to use for the request. Currently only "POST" is supported.
+	Method string `json:"method"`
+	// The relative URL path for the request (e.g., "/v1/chat/completions").
+	URL string `json:"url"`
+	// The parameters for the request.
+	Body interface{} `json:"body"`
+}
+
+// BatchItemError represents an error for a specific request in a batch.
+type BatchItemError struct {
+	// The error code.
+	Code string `json:"code"`
+	// A human-readable error message.
+	Message string `json:"message"`
+}
+
+// BatchItemResponse represents the response for a specific request in a batch.
+type BatchItemResponse struct {
+	// The HTTP status code.
+	StatusCode int `json:"status_code"`
+	// The request ID for tracing.
+	RequestID string `json:"request_id"`
+	// The response body.
+	Body interface{} `json:"body"`
+}
+
+// BatchResponseItem represents a single response in a batch output file.
+type BatchResponseItem struct {
+	// The batch request ID.
+	ID string `json:"id"`
+	// The developer-provided custom ID from the request.
+	CustomID string `json:"custom_id"`
+	// The response from the request, if successful.
+	Response *BatchItemResponse `json:"response"`
+	// The error from the request, if any.
+	Error *BatchItemError `json:"error"`
+}

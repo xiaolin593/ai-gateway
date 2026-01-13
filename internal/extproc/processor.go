@@ -7,7 +7,9 @@ package extproc
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"os"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
@@ -64,5 +66,76 @@ func (p passThroughProcessor) ProcessResponseBody(context.Context, *extprocv3.Ht
 
 // SetBackend implements [Processor.SetBackend].
 func (p passThroughProcessor) SetBackend(context.Context, *filterapi.Backend, filterapi.BackendAuthHandler, Processor) error {
+	return nil
+}
+
+// authPassThroughProcessor passes through requests but injects backend authentication.
+type authPassThroughProcessor struct {
+	backendHandler filterapi.BackendAuthHandler
+	requestHeaders map[string]string
+	isUpstream     bool
+}
+
+// ProcessRequestHeaders implements [Processor.ProcessRequestHeaders].
+func (p *authPassThroughProcessor) ProcessRequestHeaders(ctx context.Context, headers *corev3.HeaderMap) (*extprocv3.ProcessingResponse, error) {
+	// For router filter, just pass through
+	if !p.isUpstream {
+		return &extprocv3.ProcessingResponse{Response: &extprocv3.ProcessingResponse_RequestHeaders{}}, nil
+	}
+
+	// For upstream filter, inject backend auth
+	resp := &extprocv3.ProcessingResponse{
+		Response: &extprocv3.ProcessingResponse_RequestHeaders{
+			RequestHeaders: &extprocv3.HeadersResponse{},
+		},
+	}
+
+	if p.backendHandler != nil {
+		fmt.Fprintf(os.Stderr, "DEBUG: Calling backend auth handler\n")
+		authHeaders, err := p.backendHandler.Do(ctx, p.requestHeaders, nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "DEBUG: Backend auth failed: %v\n", err)
+			return nil, fmt.Errorf("failed to do backend auth: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "DEBUG: Backend auth returned %d headers\n", len(authHeaders))
+
+		// Add auth headers to the response
+		for _, h := range authHeaders {
+			fmt.Fprintf(os.Stderr, "DEBUG: Adding auth header: %s\n", h.Key())
+			resp.GetRequestHeaders().Response = &extprocv3.CommonResponse{
+				HeaderMutation: &extprocv3.HeaderMutation{
+					SetHeaders: append(resp.GetRequestHeaders().GetResponse().GetHeaderMutation().GetSetHeaders(),
+						&corev3.HeaderValueOption{
+							AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
+							Header:       &corev3.HeaderValue{Key: h.Key(), RawValue: []byte(h.Value())},
+						}),
+				},
+			}
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "DEBUG: No backend handler set - SetBackend may not have been called\n")
+	}
+
+	return resp, nil
+}
+
+// ProcessRequestBody implements [Processor.ProcessRequestBody].
+func (p *authPassThroughProcessor) ProcessRequestBody(context.Context, *extprocv3.HttpBody) (*extprocv3.ProcessingResponse, error) {
+	return &extprocv3.ProcessingResponse{Response: &extprocv3.ProcessingResponse_RequestBody{}}, nil
+}
+
+// ProcessResponseHeaders implements [Processor.ProcessResponseHeaders].
+func (p *authPassThroughProcessor) ProcessResponseHeaders(context.Context, *corev3.HeaderMap) (*extprocv3.ProcessingResponse, error) {
+	return &extprocv3.ProcessingResponse{Response: &extprocv3.ProcessingResponse_ResponseHeaders{}}, nil
+}
+
+// ProcessResponseBody implements [Processor.ProcessResponseBody].
+func (p *authPassThroughProcessor) ProcessResponseBody(context.Context, *extprocv3.HttpBody) (*extprocv3.ProcessingResponse, error) {
+	return &extprocv3.ProcessingResponse{Response: &extprocv3.ProcessingResponse_ResponseBody{}}, nil
+}
+
+// SetBackend implements [Processor.SetBackend].
+func (p *authPassThroughProcessor) SetBackend(ctx context.Context, backend *filterapi.Backend, handler filterapi.BackendAuthHandler, routerProcessor Processor) error {
+	p.backendHandler = handler
 	return nil
 }
