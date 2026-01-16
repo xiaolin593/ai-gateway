@@ -66,12 +66,14 @@ OpenAI and Azure OpenAI use a file-based approach with two main API groups:
 - **Delete File** (`DELETE /v1/files/{file_id}`): Remove an uploaded file.
 
 **Input File Format:**
+
 ```jsonl
 {"custom_id": "request-1", "method": "POST", "url": "/v1/chat/completions", "body": {"model": "gpt-3.5-turbo-0125", "messages": [{"role": "system", "content": "You are a helpful assistant."},{"role": "user", "content": "Hello world!"}],"max_tokens": 1000}}
 {"custom_id": "request-2", "method": "POST", "url": "/v1/chat/completions", "body": {"model": "gpt-3.5-turbo-0125", "messages": [{"role": "system", "content": "You are an unhelpful assistant."},{"role": "user", "content": "Hello world!"}],"max_tokens": 1000}}
 ```
 
 **Output File Format:**
+
 ```jsonl
 {"id": "batch_req_abc123", "custom_id": "request-1", "response": {"status_code": 200, "request_id": "req_abc123", "body": {...}}, "error": null}
 {"id": "batch_req_def456", "custom_id": "request-2", "response": {"status_code": 200, "request_id": "req_def456", "body": {...}}, "error": null}
@@ -85,10 +87,12 @@ OpenAI and Azure OpenAI use a file-based approach with two main API groups:
 - **Cancel Batch** (`POST /v1/batches/{batch_id}/cancel`): Cancel an in-progress batch job.
 
 **Batch Status Lifecycle:**
+
 - `validating` → `in_progress` → `finalizing` → `completed`
 - Alternative states: `failed`, `expired`, `cancelling`, `cancelled`
 
 **Workflow Summary:**
+
 1. Upload input JSONL file → receive `file_id`
 2. Create batch with `input_file_id` → receive `batch_id`
 3. Poll batch status until `completed`
@@ -102,6 +106,7 @@ AWS Bedrock uses a similar file-based approach but with S3:
 
 1. **Upload to S3**: Upload JSONL input file to S3
 2. **Create Batch Job**: Reference S3 URIs
+
 ```json
 {
   "clientRequestToken": "string",
@@ -120,8 +125,8 @@ AWS Bedrock uses a similar file-based approach but with S3:
   "roleArn": "arn:aws:iam::123456789012:role/MyBatchInferenceRole"
 }
 ```
-**Reference**: See [AWS Bedrock Batch Inference](https://docs.aws.amazon.com/bedrock/latest/userguide/batch-inference-create.html) and [AWS Bedrock CreateModelInvocationJob](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_CreateModelInvocationJob.html)
 
+**Reference**: See [AWS Bedrock Batch Inference](https://docs.aws.amazon.com/bedrock/latest/userguide/batch-inference-create.html) and [AWS Bedrock CreateModelInvocationJob](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_CreateModelInvocationJob.html)
 
 ### GCP Vertex AI
 
@@ -129,6 +134,7 @@ GCP Vertex AI uses Google Cloud Storage (GCS):
 
 1. **Upload to GCS**: Upload JSONL input file to GCS
 2. **Create Batch Prediction Job**: Reference GCS URIs
+
 ```json
 {
   "displayName": "my-cloud-storage-batch-inference-job",
@@ -147,6 +153,7 @@ GCP Vertex AI uses Google Cloud Storage (GCS):
   }
 }
 ```
+
 **Reference**: See [GCP Vertex Batch Inference](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/multimodal/batch-prediction-from-cloud-storage#create-batch-job-drest) for detailed request/response schema.
 
 ### Anthropic
@@ -171,27 +178,27 @@ Anthropic takes a different approach with inline requests for batch inference pr
 
 **Key Difference**: Anthropic doesn't use file references - all request data is included inline in the batch creation request.
 
-
 ## Proposed API Endpoints
 
 The following table outlines the unified Batch API endpoints following OpenAI's specification:
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/v1/files` | POST | Upload a file for batch processing | 
-| `/v1/files/{file_id}` | GET | Retrieve file metadata |
-| `/v1/files/{file_id}/content` | GET | Download file content |
-| `/v1/files/{file_id}` | DELETE | Delete a file |
-| `/v1/batches` | POST | Create a batch processing job |
-| `/v1/batches` | GET | List all batch jobs |
-| `/v1/batches/{batch_id}` | GET | Retrieve batch job status |
-| `/v1/batches/{batch_id}/cancel` | POST | Cancel a batch job |
+| Endpoint                        | Method | Description                        |
+| ------------------------------- | ------ | ---------------------------------- |
+| `/v1/files`                     | POST   | Upload a file for batch processing |
+| `/v1/files/{file_id}`           | GET    | Retrieve file metadata             |
+| `/v1/files/{file_id}/content`   | GET    | Download file content              |
+| `/v1/files/{file_id}`           | DELETE | Delete a file                      |
+| `/v1/batches`                   | POST   | Create a batch processing job      |
+| `/v1/batches`                   | GET    | List all batch jobs                |
+| `/v1/batches/{batch_id}`        | GET    | Retrieve batch job status          |
+| `/v1/batches/{batch_id}/cancel` | POST   | Cancel a batch job                 |
 
 ## API Endpoint Specification
 
 ### File Management
 
 #### Upload File
+
 ```http
 POST /v1/files
 Content-Type: multipart/form-data
@@ -201,6 +208,7 @@ purpose: "batch"
 ```
 
 **Response:**
+
 ```json
 {
   "id": "file-abc123",
@@ -213,16 +221,19 @@ purpose: "batch"
 ```
 
 #### Get File Metadata
+
 ```http
 GET /v1/files/{file_id}
 ```
 
 #### Download File Content
+
 ```http
 GET /v1/files/{file_id}/content
 ```
 
 #### Delete File
+
 ```http
 DELETE /v1/files/{file_id}
 ```
@@ -230,6 +241,7 @@ DELETE /v1/files/{file_id}
 ### Batch Management
 
 #### Create Batch
+
 ```http
 POST /v1/batches
 Content-Type: application/json
@@ -245,6 +257,7 @@ Content-Type: application/json
 ```
 
 **Response:**
+
 ```json
 {
   "id": "batch-abc123",
@@ -271,25 +284,28 @@ Content-Type: application/json
 ```
 
 #### List Batches
+
 ```http
 GET /v1/batches?limit=10
 ```
 
 #### Get Batch Status
+
 ```http
 GET /v1/batches/{batch_id}
 ```
 
 #### Cancel Batch
+
 ```http
 POST /v1/batches/{batch_id}/cancel
 ```
 
 ## Batch Request Routing Stickiness
 
-Batch APIs routing presents unique challenges compared to real-time inference because batch call(which 
+Batch APIs routing presents unique challenges compared to real-time inference because batch call(which
 happens after file request) must reference to targeted backend where file was uploaded, otherwise batch request will result
-in a "file not found" error. For instance, file request hits Azure backend and subsequent batch request hits OpenAI 
+in a "file not found" error. For instance, file request hits Azure backend and subsequent batch request hits OpenAI
 backend will certainly produce a failure due to file not found unless client upload to both which is out of Envoy AI Gateway
 scope.
 
@@ -298,8 +314,8 @@ scope.
    - Query parameters
    - Metadata in the request body
 
-2. **File Operations**: The `file_id` returned from upload should encode the target backend information, allowing 
-subsequent operations (GET, DELETE, GET content) to route correctly without requiring additional headers.
+2. **File Operations**: The `file_id` returned from upload should encode the target backend information, allowing
+   subsequent operations (GET, DELETE, GET content) to route correctly without requiring additional headers.
 
 3. **Batch Creation**: When creating a batch job, the gateway can:
    - Extract backend information from the encoded `input_file_id`
@@ -307,6 +323,7 @@ subsequent operations (GET, DELETE, GET content) to route correctly without requ
 4. **Batch Operations**: Similar to file operations, `batch_id` should encode backend information for automatic routing of status checks and cancellations.
 
 ### Introduce FileID and BatchID Encoding
+
 Encodes model information into file and batch IDs using base64 (Inspired by how LiteLLM does)
 
 ```
@@ -322,6 +339,7 @@ Encoded:   batch_bYWlndzpiYXRjaF94eXo3ODk7bW9kZWw6Z3B0LTQuMQo=
 ```
 
 The encoding:
+
 - Preserves OpenAI-compatible prefixes (`file-`, `batch_`)
 - Is transparent to clients
 - Enables automatic routing without additional parameters
@@ -333,12 +351,14 @@ The gateway must translate between OpenAI's file-based format and provider-speci
 ### OpenAI to AWS Bedrock
 
 **File Upload Flow:**
+
 1. Receive JSONL file via `/v1/files`
 2. Transform each line from OpenAI format to Bedrock format
 3. Upload transformed JSONL to customer's S3 bucket
 4. Return file metadata with encoded S3 URI
 
 **Batch Creation Flow:**
+
 1. Receive `/v1/batches` request with `input_file_id`
 2. Decode S3 URI from `file_id`
 3. Create Bedrock batch job:
@@ -362,18 +382,36 @@ The gateway must translate between OpenAI's file-based format and provider-speci
 **Example Request Transformation:**
 
 OpenAI format:
+
 ```json
-{"custom_id": "request-1", "method": "POST", "url": "/v1/chat/completions", "body": {"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "Hello"}]}}
+{
+  "custom_id": "request-1",
+  "method": "POST",
+  "url": "/v1/chat/completions",
+  "body": {
+    "model": "gpt-3.5-turbo",
+    "messages": [{ "role": "user", "content": "Hello" }]
+  }
+}
 ```
 
 AWS Bedrock format:
+
 ```json
-{"recordId": "request-1", "modelInput": {"anthropic_version": "bedrock-2023-05-31", "messages": [{"role": "user", "content": "Hello"}], "max_tokens": 1024}}
+{
+  "recordId": "request-1",
+  "modelInput": {
+    "anthropic_version": "bedrock-2023-05-31",
+    "messages": [{ "role": "user", "content": "Hello" }],
+    "max_tokens": 1024
+  }
+}
 ```
 
 ### OpenAI to GCP Vertex AI
 
 Similar transformation approach:
+
 1. Transform JSONL from OpenAI format to Vertex AI format
 2. Upload to GCS bucket
 3. Create batch prediction job with GCS references
@@ -381,13 +419,28 @@ Similar transformation approach:
 **Example Request Transformation:**
 
 OpenAI format:
+
 ```json
-{"custom_id": "request-1", "method": "POST", "url": "/v1/chat/completions", "body": {"model": "gemini-3-pro", "messages": [{"role": "user", "content": "Hello"}]}}
+{
+  "custom_id": "request-1",
+  "method": "POST",
+  "url": "/v1/chat/completions",
+  "body": {
+    "model": "gemini-3-pro",
+    "messages": [{ "role": "user", "content": "Hello" }]
+  }
+}
 ```
 
 GCP Vertex AI format:
+
 ```json
-{"request": {"contents": [{"role": "user", "parts": [{"text": "Hello"}]}]}, "params": {"temperature": 0.7}}
+{
+  "request": {
+    "contents": [{ "role": "user", "parts": [{ "text": "Hello" }] }]
+  },
+  "params": { "temperature": 0.7 }
+}
 ```
 
 ## Out of Scope
@@ -400,7 +453,6 @@ The following items are explicitly out of scope for this initial proposal:
 
 3. **Cross-Provider Batch Aggregation**: Submitting a single batch job that spans multiple providers.
 
-
 ## Future Work
 
 1. **Anthropic Batch API Support**: Implement support for Anthropic's native inline batch API.
@@ -410,6 +462,7 @@ The following items are explicitly out of scope for this initial proposal:
 **Question**: How should we integrate Anthropic's inline batch API in the future?
 
 **Option 1: Automatic Translation**
+
 - Accept OpenAI file-based format at `/v1/batches`
 - Gateway reads file and converts to Anthropic's inline format
 - Transparent to users
@@ -417,6 +470,7 @@ The following items are explicitly out of scope for this initial proposal:
 - **Cons**: Additional transformation overhead, may not support all Anthropic-specific features
 
 **Option 2: Separate Endpoint**
+
 - Provide `/anthropic/v1/batches` with native inline format
 - More aligned with Anthropic's design philosophy
 - **Pros**: Native Anthropic support, no transformation overhead
@@ -428,12 +482,12 @@ The following items are explicitly out of scope for this initial proposal:
 
 **Question**: Should we use unified endpoints or provider-prefixed endpoints?
 
-| Aspect | Option 1: Unified Endpoints (Proposed) | Option 2: Provider-Prefixed Endpoints |
-|--------|----------------------------------------|---------------------------------------|
-| **Endpoint Examples** | `/v1/files`<br>`/v1/batches` | `/openai/v1/files`<br>`/openai/v1/batches`<br>`/bedrock/v1/files`<br>`/bedrock/v1/batches`<br>`/anthropic/v1/batches` |
-| **Pros** | • Simpler API surface<br>• Consistent with existing gateway design<br>• Easier migration from OpenAI<br>• OpenAI-compatible | • Explicit provider targeting<br>• No routing ambiguity<br>• Allows provider-specific features<br>• Clear provider separation |
-| **Cons** | • Requires explicit model routing via headers/query params<br>• Potential routing complexity | • More complex API surface<br>• Less unified experience<br>• Breaks from OpenAI compatibility<br>• Client needs to know provider upfront |
-| **Model Routing** | Via headers (`X-AI-Gateway-Model`) or query parameters | Implicit from URL path |
-| **Use Case** | Best for clients wanting provider-agnostic API | Best for clients targeting specific providers |
+| Aspect                | Option 1: Unified Endpoints (Proposed)                                                                                      | Option 2: Provider-Prefixed Endpoints                                                                                                    |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Endpoint Examples** | `/v1/files`<br>`/v1/batches`                                                                                                | `/openai/v1/files`<br>`/openai/v1/batches`<br>`/bedrock/v1/files`<br>`/bedrock/v1/batches`<br>`/anthropic/v1/batches`                    |
+| **Pros**              | • Simpler API surface<br>• Consistent with existing gateway design<br>• Easier migration from OpenAI<br>• OpenAI-compatible | • Explicit provider targeting<br>• No routing ambiguity<br>• Allows provider-specific features<br>• Clear provider separation            |
+| **Cons**              | • Requires explicit model routing via headers/query params<br>• Potential routing complexity                                | • More complex API surface<br>• Less unified experience<br>• Breaks from OpenAI compatibility<br>• Client needs to know provider upfront |
+| **Model Routing**     | Via headers (`X-AI-Gateway-Model`) or query parameters                                                                      | Implicit from URL path                                                                                                                   |
+| **Use Case**          | Best for clients wanting provider-agnostic API                                                                              | Best for clients targeting specific providers                                                                                            |
 
 **Community Input Needed**: Which approach best serves the use cases for batch processing in a multi-provider gateway?
