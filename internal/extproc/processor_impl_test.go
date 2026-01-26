@@ -985,6 +985,7 @@ func TestChatCompletionProcessorUpstreamFilter_ProcessRequestHeaders_WithBodyMut
 		require.NotNil(t, p.bodyMutator)
 		require.True(t, p.onRetry())
 
+		// Modified body from previous backend attempt - mutations applied to this WITHOUT restoration
 		modifiedBody := []byte(`{"model": "gpt-4", "service_tier": "modified", "extra": "field", "messages": [{"role": "user", "content": "Modified"}]}`)
 		mutatedBody, err := p.bodyMutator.Mutate(modifiedBody)
 		require.NoError(t, err)
@@ -993,17 +994,18 @@ func TestChatCompletionProcessorUpstreamFilter_ProcessRequestHeaders_WithBodyMut
 		err = json.Unmarshal(mutatedBody, &result)
 		require.NoError(t, err)
 
-		require.Equal(t, "reserved", result["service_tier"])
-		require.Equal(t, 0.7, result["temperature"])
-		require.Equal(t, "gpt-4", result["model"])
-		require.NotContains(t, result, "extra")
+		// Verify mutations were applied to the modified body (not restored to original)
+		require.Equal(t, "reserved", result["service_tier"], "Mutation should set service_tier to reserved")
+		require.Equal(t, 0.7, result["temperature"], "Mutation should set temperature to 0.7")
+		require.Equal(t, "gpt-4", result["model"], "Model should be preserved from modified body")
+		require.Equal(t, "field", result["extra"], "Extra field from modified body should be preserved")
 
 		messages, ok := result["messages"].([]interface{})
 		require.True(t, ok)
 		require.Len(t, messages, 1)
 		firstMessage, ok := messages[0].(map[string]interface{})
 		require.True(t, ok)
-		require.Equal(t, "Hello", firstMessage["content"])
+		require.Equal(t, "Modified", firstMessage["content"], "Message content from modified body should be preserved")
 	})
 
 	t.Run("initial streaming request with forceBodyMutation and route body mutations", func(t *testing.T) {
