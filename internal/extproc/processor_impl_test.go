@@ -931,7 +931,7 @@ func TestChatCompletionProcessorUpstreamFilter_ProcessRequestHeaders_WithBodyMut
 		require.NotNil(t, response)
 
 		testBodyMutation := []byte(`{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}], "service_tier": "default", "internal_flag": true, "max_tokens": 1000}`)
-		mutatedBody, err := p.bodyMutator.Mutate(testBodyMutation, false)
+		mutatedBody, err := p.bodyMutator.Mutate(testBodyMutation)
 		require.NoError(t, err)
 
 		var result map[string]interface{}
@@ -986,7 +986,7 @@ func TestChatCompletionProcessorUpstreamFilter_ProcessRequestHeaders_WithBodyMut
 		require.True(t, p.onRetry())
 
 		modifiedBody := []byte(`{"model": "gpt-4", "service_tier": "modified", "extra": "field", "messages": [{"role": "user", "content": "Modified"}]}`)
-		mutatedBody, err := p.bodyMutator.Mutate(modifiedBody, true)
+		mutatedBody, err := p.bodyMutator.Mutate(modifiedBody)
 		require.NoError(t, err)
 
 		var result map[string]interface{}
@@ -1115,31 +1115,32 @@ func TestChatCompletionProcessorUpstreamFilter_ProcessRequestHeaders_WithBodyMut
 		require.NotContains(t, result, "stream_options", "OpenAI format should not be present - translation was erased if this fails")
 	})
 
-	t.Run("retry request should restore original body before applying mutations", func(t *testing.T) {
-		// This test verifies that on retry, the original body is still restored correctly
+	t.Run("body mutation without body restoration", func(t *testing.T) {
+		// Tests both first attempt and retry: body mutations are applied to translated body without restoration
+		// First attempt: OpenAI format -> Bedrock format with body mutations applied
+		// Retry: Mutations applied to modified Bedrock body (not restored to original OpenAI)
 		headers := map[string]string{":path": "/v1/chat/completions"}
 		chatMetrics := &mockMetrics{}
 
-		originalRequestBodyRaw := []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"Hello"}],"stream":true}`)
+		originalRequestBodyRaw := []byte(`{"model":"claude-sonnet-4.5","messages":[{"role":"user","content":"Hello"}],"stream":true}`)
 		requestBody := &openai.ChatCompletionRequest{
-			Model:  "gpt-4",
+			Model:  "claude-sonnet-4.5",
 			Stream: true,
 		}
 
 		bodyMutations := &filterapi.HTTPBodyMutation{
 			Set: []filterapi.HTTPBodyField{
-				{Path: "service_tier", Value: `"default"`},
+				{Path: "serviceTier", Value: `{"type": "default"}`},
 			},
 		}
 
-		// Simulated translated body from first attempt (with modified fields)
-		firstTranslatedBody := []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"Hello"}],"stream":true,"service_tier":"reserved"}`)
+		bedrockTranslatedBody := []byte(`{"messages":[{"role":"user","content":[{"text":"Hello"}]}],"inferenceConfig":{"temperature":0.7,"maxTokens":1024}}`)
 
 		translator := mockTranslator{
 			t:                           t,
 			expRequestBody:              requestBody,
-			expForceRequestBodyMutation: true, // On retry, forceBodyMutation is true (onRetry=true)
-			retBodyMutation:             firstTranslatedBody,
+			expForceRequestBodyMutation: false,
+			retBodyMutation:             bedrockTranslatedBody,
 		}
 
 		p := &chatCompletionProcessorUpstreamFilter{
@@ -1151,8 +1152,8 @@ func TestChatCompletionProcessorUpstreamFilter_ProcessRequestHeaders_WithBodyMut
 		}
 
 		backend := &filterapi.Backend{
-			Name:         "test-backend",
-			Schema:       filterapi.VersionedAPISchema{Name: filterapi.APISchemaOpenAI},
+			Name:         "retry-backend",
+			Schema:       filterapi.VersionedAPISchema{Name: filterapi.APISchemaAWSBedrock},
 			BodyMutation: bodyMutations,
 		}
 
@@ -1160,7 +1161,7 @@ func TestChatCompletionProcessorUpstreamFilter_ProcessRequestHeaders_WithBodyMut
 			originalRequestBody:    requestBody,
 			originalRequestBodyRaw: originalRequestBodyRaw,
 			requestHeaders:         headers,
-			upstreamFilterCount:    1,
+			upstreamFilterCount:    0,
 			forceBodyMutation:      false,
 			config:                 &filterapi.RuntimeConfig{},
 			logger:                 slog.Default(),
@@ -1169,19 +1170,17 @@ func TestChatCompletionProcessorUpstreamFilter_ProcessRequestHeaders_WithBodyMut
 		err := p.SetBackend(context.Background(), backend, &mockBackendAuthHandler{}, rp)
 		require.NoError(t, err)
 
-		// Restore translator after SetBackend
 		p.translator = &translator
 
 		require.NotNil(t, p.bodyMutator)
-		require.True(t, p.onRetry()) // This IS a retry
+		require.False(t, p.onRetry())
 
-		// Process request headers
+		// --- First Attempt ---
 		ctx := context.Background()
 		response, err := p.ProcessRequestHeaders(ctx, nil)
 		require.NoError(t, err)
 		require.NotNil(t, response)
 
-		// Verify the body mutation was applied
 		commonRes := response.Response.(*extprocv3.ProcessingResponse_RequestHeaders).RequestHeaders.Response
 		mutatedBody := commonRes.BodyMutation.GetBody()
 		require.NotNil(t, mutatedBody)
@@ -1190,11 +1189,75 @@ func TestChatCompletionProcessorUpstreamFilter_ProcessRequestHeaders_WithBodyMut
 		err = json.Unmarshal(mutatedBody, &result)
 		require.NoError(t, err)
 
-		// Verify mutations were applied
-		require.Equal(t, "default", result["service_tier"], "Route body mutation should set service_tier on retry")
+		// Verify mutations were applied to the translated Bedrock body
+		serviceTier, ok := result["serviceTier"].(map[string]interface{})
+		require.True(t, ok, "serviceTier should be present after mutation")
+		require.Equal(t, "default", serviceTier["type"], "Body mutation should set serviceTier.type to default")
 
-		// Verify the body was restored from original
-		require.Equal(t, "gpt-4", result["model"], "Original model should be present after restore")
-		require.True(t, result["stream"].(bool), "Original stream flag should be present after restore")
+		// Verify other Bedrock fields from translation are preserved
+		inferenceConfig, ok := result["inferenceConfig"].(map[string]interface{})
+		require.True(t, ok, "inferenceConfig should be present in Bedrock format")
+		require.Equal(t, 0.7, inferenceConfig["temperature"], "Temperature from Bedrock translation should be preserved")
+		require.Equal(t, float64(1024), inferenceConfig["maxTokens"], "maxTokens from Bedrock translation should be preserved")
+
+		// Verify Bedrock format is maintained (mutations applied to translated body, not original)
+		require.NotContains(t, result, "stream", "OpenAI 'stream' field should NOT be present in Bedrock format")
+		require.NotContains(t, result, "model", "OpenAI 'model' field should NOT be present in Bedrock format")
+		require.Contains(t, result, "messages", "Bedrock 'messages' field should be present")
+
+		// --- Retry Scenario ---
+		modifiedBedrockBody := []byte(`{"messages":[{"role":"user","content":[{"text":"Hello"}]}],"inferenceConfig":{"temperature":0.7,"maxTokens":1024},"serviceTier":{"type":"auto"}}`)
+
+		retryTranslator := mockTranslator{
+			t:                           t,
+			expRequestBody:              requestBody,
+			expForceRequestBodyMutation: true,
+			retBodyMutation:             modifiedBedrockBody,
+		}
+
+		retryBackend := &filterapi.Backend{
+			Name:         "retry-backend-2",
+			Schema:       filterapi.VersionedAPISchema{Name: filterapi.APISchemaAWSBedrock},
+			BodyMutation: bodyMutations, // Use same mutation as first attempt
+		}
+
+		// Simulate retry by incrementing upstreamFilterCount
+		err = p.SetBackend(context.Background(), retryBackend, &mockBackendAuthHandler{}, rp)
+		require.NoError(t, err)
+
+		// Restore translator for retry
+		p.translator = &retryTranslator
+
+		require.NotNil(t, p.bodyMutator)
+		require.True(t, p.onRetry())
+
+		// Process request headers for retry
+		retryResponse, err := p.ProcessRequestHeaders(ctx, nil)
+		require.NoError(t, err)
+		require.NotNil(t, retryResponse)
+
+		// Verify the body mutation was applied to the modified Bedrock body
+		retryCommonRes := retryResponse.Response.(*extprocv3.ProcessingResponse_RequestHeaders).RequestHeaders.Response
+		retryMutatedBody := retryCommonRes.BodyMutation.GetBody()
+		require.NotNil(t, retryMutatedBody)
+
+		var retryResult map[string]interface{}
+		err = json.Unmarshal(retryMutatedBody, &retryResult)
+		require.NoError(t, err)
+
+		// Verify retry mutations were applied to the modified Bedrock body (NOT restored to original)
+		retryServiceTier, ok := retryResult["serviceTier"].(map[string]interface{})
+		require.True(t, ok, "serviceTier should be present after retry mutation")
+		require.Equal(t, "default", retryServiceTier["type"], "Retry mutation should set serviceTier.type to default")
+
+		retryInferenceConfig, ok := retryResult["inferenceConfig"].(map[string]interface{})
+		require.True(t, ok, "inferenceConfig should be present in Bedrock format")
+		require.Equal(t, 0.7, retryInferenceConfig["temperature"], "Temperature should be preserved from modified body")
+		require.Equal(t, float64(1024), retryInferenceConfig["maxTokens"], "maxTokens should be preserved from modified body")
+
+		// Verify Bedrock format is still maintained (not restored to OpenAI)
+		require.NotContains(t, retryResult, "stream", "OpenAI 'stream' field should NOT be present on retry")
+		require.NotContains(t, retryResult, "model", "OpenAI 'model' field should NOT be present on retry")
+		require.Contains(t, retryResult, "messages", "Bedrock 'messages' field should be present on retry")
 	})
 }
