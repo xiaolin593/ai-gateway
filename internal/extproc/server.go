@@ -100,7 +100,7 @@ func (s *Server) processorForPath(requestHeaders map[string]string, isUpstreamFi
 
 // originalPathHeader is the header used to pass the original path to the processor.
 // This is used in the upstream filter level to determine the original path of the request on retry.
-const originalPathHeader = internalapi.EnvoyAIGatewayHeaderPrefix + "original-path"
+const originalPathHeader = internalapi.OriginalPathHeader
 
 // internalReqIDHeader is the header used to pass the unique internal request ID to the upstream filter.
 // This ensures that the upstream filter uses the same unique ID as the router filter to avoid race conditions.
@@ -222,7 +222,7 @@ func (s *Server) processMsg(ctx context.Context, l *slog.Logger, p Processor, re
 	case *extprocv3.ProcessingRequest_RequestHeaders:
 		requestHdrs := req.GetRequestHeaders().Headers
 		// If DEBUG log level is enabled, filter sensitive headers before logging.
-		if l.Enabled(ctx, slog.LevelDebug) {
+		if s.debugLogEnabled {
 			filteredHdrs := filterSensitiveHeadersForLogging(requestHdrs, sensitiveHeaderKeys)
 			l.Debug("request headers processing", slog.Any("request_headers", filteredHdrs))
 		}
@@ -268,7 +268,7 @@ func (s *Server) processMsg(ctx context.Context, l *slog.Logger, p Processor, re
 		}
 		resp, err := p.ProcessRequestBody(ctx, value.RequestBody)
 		// If the DEBUG log level is enabled, filter the sensitive body before logging.
-		if l.Enabled(ctx, slog.LevelDebug) {
+		if s.debugLogEnabled {
 			filteredBody := filterSensitiveRequestBodyForLogging(resp, l, sensitiveHeaderKeys)
 			l.Debug("request body processed", slog.Any("response", filteredBody))
 		}
