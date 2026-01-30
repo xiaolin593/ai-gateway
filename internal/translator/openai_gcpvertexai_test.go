@@ -2263,6 +2263,32 @@ data: {"candidates":[{"content":{"parts":[{"text":"world"}]}}]}
 	}
 }
 
+// TestOpenAIToGCPVertexAITranslatorV1ChatCompletion_StreamingResponseBody_ReturnsEmptyBodyNotNil
+// verifies that when streaming chunks cannot be parsed (incomplete data is buffered),
+// ResponseBody returns an empty slice []byte{} instead of nil. This prevents Envoy from
+// passing through the original Gemini-format body unchanged in STREAMED mode.
+func TestOpenAIToGCPVertexAITranslatorV1ChatCompletion_StreamingResponseBody_ReturnsEmptyBodyNotNil(t *testing.T) {
+	translator := &openAIToGCPVertexAITranslatorV1ChatCompletion{
+		stream:       true,
+		requestModel: "gemini-2.0-flash",
+	}
+
+	// Simulate incomplete/unparseable data that will be buffered (e.g., TCP packet boundary)
+	incompleteChunk := []byte(`data: {"candidates":[{"content":{"parts":[{"text":"Hello`)
+
+	_, newBody, _, _, err := translator.ResponseBody(
+		nil,
+		bytes.NewReader(incompleteChunk),
+		false, // not end of stream
+		nil,   // no span
+	)
+
+	require.NoError(t, err)
+	// newBody must be empty slice, NOT nil - nil causes Envoy to pass through original body
+	require.NotNil(t, newBody, "newBody must not be nil - nil causes Envoy to pass through original body in STREAMED mode")
+	require.Empty(t, newBody, "newBody should be empty when no complete chunks are parsed")
+}
+
 func TestOpenAIToGCPVertexAITranslatorV1ChatCompletion_ResponseError(t *testing.T) {
 	tests := []struct {
 		name           string

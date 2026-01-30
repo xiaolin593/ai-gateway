@@ -252,6 +252,14 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) handleStreamingResponse(
 		// Add the [DONE] marker to indicate end of stream as per OpenAI API specification.
 		newBody = append(newBody, sseDoneFullLine...)
 	}
+
+	// If no chunks were parsed (data is buffered for next call), return an empty
+	// body slice instead of nil. This prevents Envoy from passing through the original Gemini
+	// format body unchanged in STREAMED mode, which would cause both formats to appear in the response.
+	if newBody == nil {
+		newBody = []byte{}
+	}
+
 	return
 }
 
