@@ -25,8 +25,6 @@ type SpeechRecorder struct {
 
 // NewSpeechRecorderFromEnv creates a tracingapi.SpeechRecorder
 // from environment variables using the OpenInference configuration specification.
-//
-// See: https://github.com/Arize-ai/openinference/blob/main/spec/configuration.md
 func NewSpeechRecorderFromEnv() tracingapi.SpeechRecorder {
 	return NewSpeechRecorder(nil)
 }
@@ -36,8 +34,6 @@ func NewSpeechRecorderFromEnv() tracingapi.SpeechRecorder {
 //
 // Parameters:
 //   - config: configuration for redaction. Defaults to NewTraceConfigFromEnv().
-//
-// See: https://github.com/Arize-ai/openinference/blob/main/spec/configuration.md
 func NewSpeechRecorder(config *openinference.TraceConfig) tracingapi.SpeechRecorder {
 	if config == nil {
 		config = openinference.NewTraceConfigFromEnv()
