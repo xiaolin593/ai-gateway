@@ -905,3 +905,79 @@ func TestSpeechEndpointSpec_GetTranslator(t *testing.T) {
 	_, err = spec.GetTranslator(filterapi.VersionedAPISchema{Name: filterapi.APISchemaAzureOpenAI}, "override")
 	require.ErrorContains(t, err, "unsupported API schema for speech")
 }
+
+func TestSpeechEndpointSpec_RedactSensitiveInfoFromRequest(t *testing.T) {
+	spec := SpeechEndpointSpec{}
+
+	t.Run("redact_input_text", func(t *testing.T) {
+		req := &openai.SpeechRequest{
+			Model: "tts-1",
+			Input: "This is sensitive text that should be redacted",
+			Voice: "alloy",
+		}
+
+		redacted, err := spec.RedactSensitiveInfoFromRequest(req)
+		require.NoError(t, err)
+		require.NotNil(t, redacted)
+		require.Contains(t, redacted.Input, "[REDACTED LENGTH=")
+		require.Equal(t, "tts-1", redacted.Model)
+		require.Equal(t, "alloy", redacted.Voice)
+	})
+
+	t.Run("redact_instructions", func(t *testing.T) {
+		instructions := "Speak with a British accent and emphasize certain words"
+		req := &openai.SpeechRequest{
+			Model:        "gpt-4o-mini-tts",
+			Input:        "Hello world",
+			Voice:        "nova",
+			Instructions: &instructions,
+		}
+
+		redacted, err := spec.RedactSensitiveInfoFromRequest(req)
+		require.NoError(t, err)
+		require.NotNil(t, redacted)
+		require.Contains(t, redacted.Input, "[REDACTED LENGTH=")
+		require.NotNil(t, redacted.Instructions)
+		require.Contains(t, *redacted.Instructions, "[REDACTED LENGTH=")
+	})
+
+	t.Run("no_instructions", func(t *testing.T) {
+		req := &openai.SpeechRequest{
+			Model: "tts-1-hd",
+			Input: "Test input",
+			Voice: "echo",
+		}
+
+		redacted, err := spec.RedactSensitiveInfoFromRequest(req)
+		require.NoError(t, err)
+		require.NotNil(t, redacted)
+		require.Contains(t, redacted.Input, "[REDACTED LENGTH=")
+		require.Nil(t, redacted.Instructions)
+	})
+
+	t.Run("preserve_other_fields", func(t *testing.T) {
+		responseFormat := "wav"
+		speed := 1.5
+		streamFormat := "sse"
+		req := &openai.SpeechRequest{
+			Model:          "gpt-4o-mini-tts",
+			Input:          "Sensitive content",
+			Voice:          "shimmer",
+			ResponseFormat: &responseFormat,
+			Speed:          &speed,
+			StreamFormat:   &streamFormat,
+		}
+
+		redacted, err := spec.RedactSensitiveInfoFromRequest(req)
+		require.NoError(t, err)
+		require.NotNil(t, redacted)
+		require.Contains(t, redacted.Input, "[REDACTED LENGTH=")
+		require.Equal(t, "shimmer", redacted.Voice)
+		require.NotNil(t, redacted.ResponseFormat)
+		require.Equal(t, "wav", *redacted.ResponseFormat)
+		require.NotNil(t, redacted.Speed)
+		require.Equal(t, 1.5, *redacted.Speed)
+		require.NotNil(t, redacted.StreamFormat)
+		require.Equal(t, "sse", *redacted.StreamFormat)
+	})
+}

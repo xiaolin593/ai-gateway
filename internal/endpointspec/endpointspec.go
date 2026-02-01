@@ -614,3 +614,20 @@ func (SpeechEndpointSpec) GetTranslator(
 		return nil, fmt.Errorf("unsupported API schema for speech: backend=%s", schema)
 	}
 }
+
+// RedactSensitiveInfoFromRequest implements [EndpointSpec.RedactSensitiveInfoFromRequest].
+func (SpeechEndpointSpec) RedactSensitiveInfoFromRequest(req *openai.SpeechRequest) (redactedReq *openai.SpeechRequest, err error) {
+	// Create a shallow copy of the request
+	redacted := *req
+
+	// Redact the input text (contains user-provided text to be synthesized)
+	redacted.Input = redaction.RedactString(req.Input)
+
+	// Redact instructions if present (may contain sensitive context)
+	if req.Instructions != nil {
+		redactedInstructions := redaction.RedactString(*req.Instructions)
+		redacted.Instructions = &redactedInstructions
+	}
+
+	return &redacted, nil
+}
