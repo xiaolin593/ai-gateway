@@ -74,7 +74,7 @@ func (o *openAIToOpenAITranslatorV1Speech) RequestBody(original []byte, req *ope
 }
 
 // ResponseHeaders implements [OpenAISpeechTranslator.ResponseHeaders].
-func (o *openAIToOpenAITranslatorV1Speech) ResponseHeaders(headers map[string]string) (newHeaders []internalapi.Header, err error) {
+func (o *openAIToOpenAITranslatorV1Speech) ResponseHeaders(_ map[string]string) (newHeaders []internalapi.Header, err error) {
 	// For OpenAI to OpenAI translation, we don't need to mutate the response headers.
 	// The content-type will be set by the backend (audio/mpeg, audio/wav, etc. for binary, or text/event-stream for SSE).
 	return nil, nil
