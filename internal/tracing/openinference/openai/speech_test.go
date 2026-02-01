@@ -258,10 +258,10 @@ func TestSpeechRecorder_RecordResponse(t *testing.T) {
 			expectedStatus: trace.Status{Code: codes.Ok, Description: ""},
 		},
 		{
-			name:           "empty response",
-			resp:           &[]byte{},
-			config:         &openinference.TraceConfig{},
-			expectedAttrs:  []attribute.KeyValue{
+			name:   "empty response",
+			resp:   &[]byte{},
+			config: &openinference.TraceConfig{},
+			expectedAttrs: []attribute.KeyValue{
 				attribute.String(openinference.OutputMimeType, "audio/mpeg"),
 				attribute.Int("output.audio_bytes", 0),
 			},
@@ -362,9 +362,9 @@ func TestBuildSpeechRequestAttributes(t *testing.T) {
 		expectedAttrs []attribute.KeyValue
 	}{
 		{
-			name: "basic request attributes",
-			req:  basicSpeechReq,
-			body: string(basicSpeechReqBody),
+			name:   "basic request attributes",
+			req:    basicSpeechReq,
+			body:   string(basicSpeechReqBody),
 			config: &openinference.TraceConfig{},
 			expectedAttrs: []attribute.KeyValue{
 				attribute.String(openinference.SpanKind, openinference.SpanKindLLM),
@@ -376,9 +376,9 @@ func TestBuildSpeechRequestAttributes(t *testing.T) {
 			},
 		},
 		{
-			name: "hidden inputs",
-			req:  basicSpeechReq,
-			body: string(basicSpeechReqBody),
+			name:   "hidden inputs",
+			req:    basicSpeechReq,
+			body:   string(basicSpeechReqBody),
 			config: &openinference.TraceConfig{HideInputs: true},
 			expectedAttrs: []attribute.KeyValue{
 				attribute.String(openinference.SpanKind, openinference.SpanKindLLM),
@@ -389,9 +389,9 @@ func TestBuildSpeechRequestAttributes(t *testing.T) {
 			},
 		},
 		{
-			name: "hidden invocation parameters",
-			req:  basicSpeechReq,
-			body: string(basicSpeechReqBody),
+			name:   "hidden invocation parameters",
+			req:    basicSpeechReq,
+			body:   string(basicSpeechReqBody),
 			config: &openinference.TraceConfig{HideLLMInvocationParameters: true},
 			expectedAttrs: []attribute.KeyValue{
 				attribute.String(openinference.SpanKind, openinference.SpanKindLLM),
