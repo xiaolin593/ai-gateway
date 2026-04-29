@@ -129,7 +129,7 @@ func isAnthropicSupportedImageMediaType(mediaType string) bool {
 
 // translateOpenAItoAnthropicTools translates OpenAI tool and tool_choice parameters
 // into the Anthropic format and returns translated tool & tool choice.
-func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice *openai.ChatCompletionToolChoiceUnion, parallelToolCalls *bool) (tools []anthropic.ToolUnionParam, toolChoice anthropic.ToolChoiceUnionParam, err error) {
+func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice *openai.ChatCompletionToolChoiceUnion, parallelToolCalls *bool, eagerInputStreaming *bool) (tools []anthropic.ToolUnionParam, toolChoice anthropic.ToolChoiceUnionParam, err error) {
 	if len(openAITools) > 0 {
 		anthropicTools := make([]anthropic.ToolUnionParam, 0, len(openAITools))
 		for _, openAITool := range openAITools {
@@ -140,6 +140,10 @@ func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice
 			toolParam := anthropic.ToolParam{
 				Name:        openAITool.Function.Name,
 				Description: anthropic.String(openAITool.Function.Description),
+			}
+
+			if eagerInputStreaming != nil && *eagerInputStreaming {
+				toolParam.EagerInputStreaming = anthropic.Bool(true)
 			}
 
 			if isCacheEnabled(openAITool.Function.AnthropicContentFields) {
@@ -676,7 +680,7 @@ func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest, apiSchema str
 	}
 
 	// 3. Translate tools and tool choice.
-	tools, toolChoice, err := translateOpenAItoAnthropicTools(openAIReq.Tools, openAIReq.ToolChoice, openAIReq.ParallelToolCalls)
+	tools, toolChoice, err := translateOpenAItoAnthropicTools(openAIReq.Tools, openAIReq.ToolChoice, openAIReq.ParallelToolCalls, openAIReq.EagerInputStreaming)
 	if err != nil {
 		return
 	}
