@@ -172,6 +172,8 @@ func schemaToFilterAPI(schema aigv1b1.VersionedAPISchema) filterapi.VersionedAPI
 	ret.Name = filterapi.APISchemaName(schema.Name)
 	if schema.Name == aigv1b1.APISchemaOpenAI || schema.Name == aigv1b1.APISchemaAnthropic {
 		ret.Prefix = cmp.Or(ptr.Deref(schema.Prefix, ""), "v1")
+	} else if schema.Name == aigv1b1.APISchemaAWSOpenAI {
+		ret.Prefix = cmp.Or(ptr.Deref(schema.Prefix, ""), "openai/v1")
 	} else {
 		ret.Version = ptr.Deref(schema.Version, "")
 	}
